@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AFVReplay</AssemblyName>
+    <RootNamespace>AFVReplay</RootNamespace>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Version>0.1.0</Version>
+    <Product>Say Again</Product>
+    <Description>vatSys plugin: replay recent AFV frequency calls and hotline/coldline coord from memory.</Description>
+    <Authors>Verbjimtim</Authors>
+    <Company>Verbjimtim</Company>
+    <Copyright>Copyright (c) 2026 Verbjimtim. MIT licence.</Copyright>
+    <RepositoryUrl>https://github.com/Verbjimtim/Say-Again</RepositoryUrl>
+    <Nullable>disable</Nullable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- vatSys.exe references Newtonsoft 13 but ships 12 with a binding redirect; we build against the shipped one. -->
+    <NoWarn>MSB3277</NoWarn>
+    <!-- Where vatSys is installed. Override with -p:VatSysBin=... -->
+    <VatSysBin Condition="'$(VatSysBin)' == ''">C:\Program Files (x86)\vatSys\bin</VatSysBin>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.ComponentModel.Composition" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <!-- vatSys and the libraries it ships. Never copied: the plugin uses the ones vatSys has already loaded. -->
+  <ItemGroup>
+    <Reference Include="vatSys"><HintPath>$(VatSysBin)\vatSys.exe</HintPath><Private>false</Private></Reference>
+    <Reference Include="GeoVR.Client"><HintPath>$(VatSysBin)\GeoVR.Client.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="GeoVR.Shared"><HintPath>$(VatSysBin)\GeoVR.Shared.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NAudio.Core"><HintPath>$(VatSysBin)\NAudio.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Concentus"><HintPath>$(VatSysBin)\Concentus.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MumbleSharp"><HintPath>$(VatSysBin)\MumbleSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharpDX"><HintPath>$(VatSysBin)\SharpDX.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharpDX.DirectInput"><HintPath>$(VatSysBin)\SharpDX.DirectInput.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(VatSysBin)\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="VATSYSControls"><HintPath>$(VatSysBin)\VATSYSControls.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AFVReplay.Tests" />
+  </ItemGroup>
+
+</Project>

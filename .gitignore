@@ -1,0 +1,15 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# Release packages (attached to GitHub releases instead)
+artifacts/
+
+# Throwaway mock-ups
+prototype/

@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <!-- vatSys.exe is a 32-bit process; the harness must match to load it. -->
+    <PlatformTarget>x86</PlatformTarget>
+    <UseWindowsForms>true</UseWindowsForms>
+    <NoWarn>MSB3277</NoWarn>
+    <VatSysBin Condition="'$(VatSysBin)' == ''">C:\Program Files (x86)\vatSys\bin</VatSysBin>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AFVReplay\AFVReplay.csproj" />
+  </ItemGroup>
+
+  <!-- Compile against vatSys's libraries but load them from the vatSys folder at runtime (see Program.cs). -->
+  <ItemGroup>
+    <Reference Include="vatSys"><HintPath>$(VatSysBin)\vatSys.exe</HintPath><Private>false</Private></Reference>
+    <Reference Include="GeoVR.Client"><HintPath>$(VatSysBin)\GeoVR.Client.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="GeoVR.Shared"><HintPath>$(VatSysBin)\GeoVR.Shared.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NAudio.Core"><HintPath>$(VatSysBin)\NAudio.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Concentus"><HintPath>$(VatSysBin)\Concentus.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MumbleSharp"><HintPath>$(VatSysBin)\MumbleSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharpDX"><HintPath>$(VatSysBin)\SharpDX.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharpDX.DirectInput"><HintPath>$(VatSysBin)\SharpDX.DirectInput.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Configuration" />
+    <Reference Include="VATSYSControls"><HintPath>$(VatSysBin)\VATSYSControls.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(VatSysBin)\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+</Project>

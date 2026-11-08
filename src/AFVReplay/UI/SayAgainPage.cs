@@ -201,6 +201,61 @@ namespace AFVReplay.UI
             UpdateScrollBar(force: true);
         }
 
+        // ------------------------------------------------------------------ scrolling
+        // WinForms' ListView.TopItem setter scrolls relative to the row Windows reports as the top
+        // one. Once that report is out of range (it can go negative, e.g. after calls expire while
+        // the list is scrolled), every later scroll pushes the rows further off the visible area
+        // and the list looks empty. So the list is scrolled to absolute positions here instead,
+        // measured from where row 0 actually is, and pulled back into range on every refresh.
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out NativeRect rect);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativeRect { public int Left, Top, Right, Bottom; }
+
+        private const int LVM_SCROLL = 0x1014, LVM_GETHEADER = 0x101F;
+
+        /// <summary>Height of the column header, where row 0 sits when the list is at the top.</summary>
+        private int HeaderHeight
+        {
+            get
+            {
+                if (!list.IsHandleCreated) return 0;
+                var header = SendMessage(list.Handle, LVM_GETHEADER, IntPtr.Zero, IntPtr.Zero);
+                return header != IntPtr.Zero && GetClientRect(header, out var r) ? r.Bottom - r.Top : 0;
+            }
+        }
+
+        /// <summary>Pixels scrolled down from the top (0 at the top; negative means scrolled past it).</summary>
+        private int ScrollOffset => list.Items.Count == 0 || !list.IsHandleCreated ? 0 : HeaderHeight - list.GetItemRect(0).Top;
+
+        private int MaxTopRow => Math.Max(0, list.Items.Count - VisibleRows);
+
+        /// <summary>The first row showing under the header.</summary>
+        private int TopRow => list.Items.Count == 0 ? 0
+            : Math.Max(0, Math.Min(list.Items.Count - 1, (int)Math.Round(ScrollOffset / (double)RowHeight)));
+
+        /// <summary>Scrolls so that <paramref name="row"/> is the first row showing (clamped to what can show).</summary>
+        private void ScrollToRow(int row)
+        {
+            if (list.Items.Count == 0 || !list.IsHandleCreated) return;
+            row = Math.Max(0, Math.Min(MaxTopRow, row));
+            int dy = row * RowHeight - ScrollOffset;
+            if (dy != 0) SendMessage(list.Handle, LVM_SCROLL, IntPtr.Zero, (IntPtr)dy);
+        }
+
+        /// <summary>Puts the list back in range if it has ended up scrolled above the top or past the end.</summary>
+        private void KeepInRange()
+        {
+            if (list.Items.Count == 0 || !list.IsHandleCreated) return;
+            int offset = ScrollOffset;
+            if (offset < 0 || offset > MaxTopRow * RowHeight) ScrollToRow(TopRow);
+        }
+
         private int RowHeight => list.Items.Count > 0 ? Math.Max(1, list.GetItemRect(0).Height) : Math.Max(1, listFont.Height + 2);
 
         /// <summary>Rows fully visible under the header.</summary>
@@ -208,7 +263,7 @@ namespace AFVReplay.UI
         {
             get
             {
-                int header = list.Items.Count > 0 && list.TopItem != null ? list.GetItemRect(list.TopItem.Index).Top : RowHeight;
+                int header = HeaderHeight > 0 ? HeaderHeight : RowHeight;
                 return Math.Max(1, (list.ClientSize.Height - header) / RowHeight);
             }
         }
@@ -218,7 +273,7 @@ namespace AFVReplay.UI
         {
             if (listScroll == null || !list.IsHandleCreated) return;
             if (listScroll.Capture) return; // the user is holding the bar: it leads, the list follows
-            int top = list.Items.Count > 0 && list.TopItem != null ? list.TopItem.Index : 0;
+            int top = TopRow;
             if (!force && top == lastTopIndex && listScroll.PreferredHeight == list.Items.Count * RowHeight) return;
             lastTopIndex = top;
             syncingScroll = true;
@@ -237,19 +292,14 @@ namespace AFVReplay.UI
         {
             if (syncingScroll || list.Items.Count == 0) return;
             int index = Math.Max(0, Math.Min(list.Items.Count - 1, (int)Math.Round(listScroll.Value / (double)RowHeight)));
-            var item = list.Items[index];
-            list.TopItem = item;
-            list.TopItem = item; // set twice: WinForms quirk in Details view
-            lastTopIndex = list.TopItem?.Index ?? index;
+            ScrollToRow(index);
+            lastTopIndex = TopRow;
         }
 
         private void ScrollRows(int rows)
         {
             if (list.Items.Count == 0) return;
-            int top = list.TopItem?.Index ?? 0;
-            int index = Math.Max(0, Math.Min(list.Items.Count - 1, top + rows));
-            list.TopItem = list.Items[index];
-            list.TopItem = list.Items[index];
+            ScrollToRow(TopRow + rows);
             UpdateScrollBar(force: true);
         }
 
@@ -332,8 +382,10 @@ namespace AFVReplay.UI
         internal void SyncList(List<Clip> items, DateTime now)
         {
             var wanted = new HashSet<Clip>(items);
-            var topClip = list.Items.Count > 0 ? list.TopItem?.Tag as Clip : null;
-            bool scrolled = list.Items.Count > 0 && list.TopItem != null && list.TopItem.Index > 0;
+            KeepInRange();
+            int topRow = TopRow;
+            var topClip = list.Items.Count > 0 ? list.Items[topRow].Tag as Clip : null;
+            bool scrolled = list.Items.Count > 0 && topRow > 0;
             bool changed = false;
 
             list.BeginUpdate();
@@ -363,10 +415,11 @@ namespace AFVReplay.UI
                 if (scrolled && topClip != null)
                 {
                     var keep = FindItem(topClip);
-                    if (keep != null) { list.TopItem = keep; list.TopItem = keep; } // set twice: WinForms quirk in Details view
+                    if (keep != null) ScrollToRow(keep.Index);
                 }
                 FitColumns();
             }
+            KeepInRange();
             UpdateScrollBar(force: changed);
         }
 

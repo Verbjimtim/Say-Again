@@ -15,6 +15,9 @@ namespace AFVReplay.Tests
 {
     internal static class Tests
     {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
         private static int failures;
         private static int passes;
 
@@ -32,7 +35,8 @@ namespace AFVReplay.Tests
             Run(nameof(EndToEnd_TwoFrequenciesAtOnce), EndToEnd_TwoFrequenciesAtOnce);
             Run(nameof(EndToEnd_DuplicateTransceiversCollapsed), EndToEnd_DuplicateTransceiversCollapsed);
             Run(nameof(EndToEnd_ReceiverChangesAndUnhook), EndToEnd_ReceiverChangesAndUnhook);
-            Run(nameof(ReplayStepsBackAndPlaysIntoMix), ReplayStepsBackAndPlaysIntoMix);
+            Run(nameof(ReplayRepeatsNewestAndPlaysIntoMix), ReplayRepeatsNewestAndPlaysIntoMix);
+            Run(nameof(ReplayKeySkipsOwnAndFollowsNewest), ReplayKeySkipsOwnAndFollowsNewest);
             Run(nameof(SettingsRoundTripHasNoAudio), SettingsRoundTripHasNoAudio);
             Run(nameof(TimeStretchKeepsPitch), TimeStretchKeepsPitch);
             Run(nameof(ReplaySpeedShortensPlayback), ReplaySpeedShortensPlayback);
@@ -40,6 +44,11 @@ namespace AFVReplay.Tests
             Run(nameof(SayAgainPlaysInTableOrder), SayAgainPlaysInTableOrder);
             Run(nameof(SecondCopyDisablesItself), SecondCopyDisablesItself);
             Run(nameof(SayAgainListKeepsScrollAndSelection), SayAgainListKeepsScrollAndSelection);
+            Run(nameof(SayAgainListShowsCallsFromBeforeOpening), () =>
+            {
+                const string profile = @"C:\Users\jamie\Documents\vatSys Files\Profiles\Australia";
+                if (System.IO.Directory.Exists(profile)) SayAgainListShowsCallsFromBeforeOpening(profile);
+            });
             Run(nameof(RecordsAtEightKilohertz), RecordsAtEightKilohertz);
             Run(nameof(CoordLevelsQuietMic), CoordLevelsQuietMic);
             Run(nameof(CoordRecorderCutsUtterances), CoordRecorderCutsUtterances);
@@ -68,9 +77,10 @@ namespace AFVReplay.Tests
             }
             catch (Exception ex)
             {
+                while (ex is System.Reflection.TargetInvocationException && ex.InnerException != null) ex = ex.InnerException;
                 failures++;
                 Console.WriteLine("FAIL " + name + ": " + ex.Message);
-                Console.WriteLine(ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim());
+                Console.WriteLine(string.Join("\n", (ex.StackTrace ?? "").Split('\n').Take(6).Select(l => l.Trim())));
             }
         }
 
@@ -391,12 +401,11 @@ namespace AFVReplay.Tests
             }
         }
 
-        private static void ReplayStepsBackAndPlaysIntoMix()
+        private static void ReplayRepeatsNewestAndPlaysIntoMix()
         {
             using (var rig = new Rig((1, 125_600_000)))
             {
-                var settings = new ReplaySettings();
-                var controller = new ReplayController(rig.Store, rig.Player, () => settings);
+                var controller = new ReplayController(rig.Store, rig.Player);
                 Assert(controller.Press() == null, "nothing to play yet");
 
                 rig.Transmit("FIRST", 0.8, 400, (1, 125_600_000, 1f));
@@ -411,10 +420,12 @@ namespace AFVReplay.Tests
                 var mixed = rig.Pump(400);
                 Assert(Rms(mixed) > 0.05, "replay should come out of the AFV mix");
 
+                rig.Pump(200);
                 var c2 = controller.Press();
-                Assert(c2?.CallsignText == "FIRST", "second press steps back, got " + c2?.CallsignText);
+                Assert(c2?.CallsignText == "SECOND", "second press repeats the newest, got " + c2?.CallsignText);
+                Assert(rig.Player.Progress < 0.05, "and restarts it from the beginning, at " + rig.Player.Progress);
                 var c3 = controller.Press();
-                Assert(c3?.CallsignText == "FIRST", "stays on oldest, got " + c3?.CallsignText);
+                Assert(c3?.CallsignText == "SECOND", "never steps back, got " + c3?.CallsignText);
 
                 rig.Pump(1500);
                 Assert(!rig.Player.IsPlaying, "playback should finish");
@@ -427,6 +438,28 @@ namespace AFVReplay.Tests
                 rig.Pump(100);
                 Assert(stopped && !rig.Player.IsPlaying, "new call should stop the replay");
             }
+        }
+
+        private static void ReplayKeySkipsOwnAndFollowsNewest()
+        {
+            var plugin = new ReplayPlugin(new ReplaySettings());
+            var pilot = ToneClip(plugin, "QFA1", 1);
+            plugin.Store.Add(pilot);
+            var pcm = Tone(1, 300).Select(v => (short)(v / AudioFormat.StorageHeadroom * short.MaxValue)).ToArray();
+            var own = new Clip(plugin.Store.NextId(), DateTime.UtcNow.AddSeconds(-1), DateTime.UtcNow.AddSeconds(1), 125_600_000, "125.600",
+                new[] { "You" }, false, OpusCodec.Encode(pcm, pcm.Length), pcm.Length, isOwn: true);
+            plugin.Store.Add(own);
+            Assert(plugin.Controller.Press() == pilot, "your own reply is skipped: the key plays the pilot's call");
+            Assert(plugin.Controller.Press() == pilot, "pressing again repeats it");
+            var newer = ToneClip(plugin, "VOZ2", 1);
+            plugin.Store.Add(newer);
+            Assert(plugin.Controller.Press() == newer, "a newer call takes over");
+            plugin.StopAll();
+            plugin.CoordStore.Add(CoordClip(plugin, "ML-BIK_CTR", 1));
+            var latestCoord = CoordClip(plugin, "BN-ISA_CTR", 1);
+            plugin.CoordStore.Add(latestCoord);
+            Assert(plugin.CoordController.Press() == latestCoord && plugin.CoordController.Press() == latestCoord, "coord key: newest line call, repeated");
+            plugin.StopAll();
         }
 
         private static void SettingsRoundTripHasNoAudio()
@@ -1153,6 +1186,82 @@ namespace AFVReplay.Tests
                 list.TopItem = list.Items[0]; list.TopItem = list.Items[0];
                 plugin.Store.Add(F(99, 0.1)); page.RefreshView(); Pump();
                 Assert(list.TopItem.Index == 0 && ((Clip)list.TopItem.Tag).Callsigns[0] == "ACFT99", "at the top, the newest call shows");
+                int atTop = list.GetItemRect(0).Top;
+
+                // Seen live: the list ended up scrolled above its top (Windows' top row -2) and
+                // looked empty. A refresh must put it back.
+                SendMessage(list.Handle, 0x1014 /* LVM_SCROLL */, IntPtr.Zero, (IntPtr)(-3 * row));
+                Console.WriteLine($"     after forcing a scroll above the top, row 0 at {list.GetItemRect(0).Top} (top {atTop})");
+                page.RefreshView(); Pump();
+                Assert(list.GetItemRect(0).Top == atTop, "refresh pulls the list back to its top, row 0 at " + list.GetItemRect(0).Top);
+
+                // Scrolled to the bottom, then most calls expire: the remaining calls stay in view.
+                bar.Value = bar.Maximum; Pump();
+                foreach (var c in plugin.Store.Snapshot().Skip(3).ToList()) plugin.Store.Remove(c);
+                page.RefreshView(); Pump();
+                Assert(list.Items.Count == 3 && list.GetItemRect(0).Top == atTop, $"after expiry the last {list.Items.Count} calls show from the top, row 0 at {list.GetItemRect(0).Top}");
+
+                // A busy session: calls arriving and expiring while the list is scrolled about.
+                // Whatever happens, the list must never scroll above its top or past its end.
+                var rng = new Random(3);
+                int id = 200;
+                for (int step = 0; step < 300; step++)
+                {
+                    int what = rng.Next(6);
+                    if (what == 5) page.Visible = !page.Visible; // another VSCS page shown, then back
+                    if (what == 0 || list.Items.Count < 3) plugin.Store.Add(F(id++, 0.1));
+                    else if (what == 1)
+                    {
+                        var kept = plugin.Store.Snapshot();
+                        int drop = rng.Next(1, Math.Min(6, kept.Count));
+                        foreach (var c in kept.Skip(kept.Count - drop)) plugin.Store.Remove(c); // oldest expire
+                    }
+                    else if (what == 2) bar.Value = rng.Next(0, Math.Max(1, bar.Maximum + 1));
+                    else if (what == 3 && list.Items.Count > 0) { var i = list.Items[rng.Next(list.Items.Count)]; i.Selected = true; i.EnsureVisible(); }
+                    page.RefreshView();
+                    System.Windows.Forms.Application.DoEvents();
+                    if (list.Items.Count == 0 || !page.Visible) continue;
+                    int top0 = list.GetItemRect(0).Top;
+                    int rowsShowing = (list.ClientSize.Height - atTop) / row;
+                    int lowest = atTop - Math.Max(0, list.Items.Count - rowsShowing) * row;
+                    Assert(top0 <= atTop && top0 >= lowest - row,
+                        $"step {step}: list scrolled out of range (row 0 at {top0}, allowed {lowest}..{atTop}, {list.Items.Count} calls)");
+                }
+                form.Close();
+            }
+        }
+
+        /// <summary>
+        /// As in vatSys: the page is built hidden at its default size, calls arrive while it is
+        /// hidden, then it is shown (made visible first, sized after, as the VSCS injector does).
+        /// </summary>
+        private static void SayAgainListShowsCallsFromBeforeOpening(string profile)
+        {
+            try { Preview.LoadProfileColours(profile); } catch (Exception) { } // already loaded by an earlier test
+            var plugin = new ReplayPlugin(new ReplaySettings());
+            var now = DateTime.UtcNow;
+            var pcm = new short[960];
+            Clip F(int n, double ago) => new Clip(plugin.Store.NextId(), now.AddSeconds(-ago - 1), now.AddSeconds(-ago), 118_500_000, "Gingin T 118.500",
+                new[] { "ACFT" + n }, false, OpusCodec.Encode(pcm, pcm.Length), pcm.Length);
+
+            using (var form = new NoFocusForm { StartPosition = System.Windows.Forms.FormStartPosition.Manual, Location = new System.Drawing.Point(-4000, -4000), Size = new System.Drawing.Size(620, 360), ShowInTaskbar = false })
+            {
+                form.Show();
+                void Pump() { for (int k = 0; k < 10; k++) { System.Windows.Forms.Application.DoEvents(); System.Threading.Thread.Sleep(10); } }
+                var page = new AFVReplay.UI.SayAgainPage(plugin) { Visible = false };
+                form.Controls.Add(page);
+                Pump();
+                for (int n = 0; n < 8; n++) { plugin.Store.Add(F(n, 60 - n * 5)); page.RefreshView(); Pump(); }
+
+                page.Visible = true;
+                page.Bounds = new System.Drawing.Rectangle(172, 0, 430, 330);
+                Pump();
+                page.RefreshView(); Pump();
+                var list = FindControl<System.Windows.Forms.ListView>(page);
+                int top0 = list.GetItemRect(0).Top, height = list.ClientSize.Height;
+                Console.WriteLine($"     opened: {list.Items.Count} calls, row 0 at {top0}, list {height} px high");
+                Assert(list.Items.Count == 8, "8 calls listed, got " + list.Items.Count);
+                Assert(top0 > 0 && top0 < 40, "first call shows just under the header, row 0 at " + top0);
                 form.Close();
             }
         }

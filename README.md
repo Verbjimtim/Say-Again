@@ -14,7 +14,7 @@ Keeps the last few minutes of received AFV transmissions, and of hotline/coldlin
 
 - **One clip per transmission, per frequency**, tagged with callsign and frequency. Two stations on different frequencies at once become two clips.
 - **Replay key** sits in vatSys's own *Settings → Keyboard* window, under *Quick Text*, as **Replay Last**. It captures exactly like PTT: left click for keyboard/mouse/joystick, right click for keyboard/mouse only, middle click to clear. It works when vatSys isn't focused.
-- **Tap** plays the newest call. **Tap again** while it plays (or within 4 s) steps back one call each time.
+- **Each key plays the most recent call of its kind** (Replay Last: frequency; Replay Coord: line call). Press again to hear the same call again from the start, as often as you need to work out what was said. Your own transmissions are skipped. Once a newer call comes in, the key plays that one. Older calls are on the Say Again page.
 - Replay plays through vatSys's AFV output, so you hear it on the same headset and extra outputs at the vatSys volume.
 - **Your own voice too**: your frequency transmissions (only real ones: PTT held with AFV connected and a frequency set to Transmit, one clip per press, on that frequency; pressing PTT as an observer records nothing) and your side of open lines (mixed into the line call's clip). Your frequency transmissions get vatSys's AFV mic gain, as AFV applies it. On lines vatSys sends the raw mic, so each side of a line call is brought up to a normal speech level (boost only, at most 8x) before mixing. Your transmissions show as "You" in the list and "YOU" on the VSCS.
 - **Coord replay** (hotline/coldline), on its own key, **Replay Coord**, kept for up to **10 minutes**. Each line call becomes one clip with **both sides mixed** as you heard them (the other controller and you), labelled with who spoke (e.g. `ML-BIK_CTR + You`). A call ends after 4 s with nobody talking. It plays back through vatSys's coord output at the coord volume. Only lines you had open are recorded, because vatSys mutes the others. Both sides are kept.
@@ -79,7 +79,7 @@ dotnet build tests\AFVReplay.Tests -c Release
 .\tests\AFVReplay.Tests\bin\Release\net472\AFVReplay.Tests.exe
 ```
 
-The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipeline** with Opus packets at real AFV pacing. It covers: the bridge matching the installed vatSys, splitting, blips, stuck-mic splitting, two frequencies at once, duplicate-transceiver collapse, receivers being added/removed, unhook restoring AFV, live audio unchanged by the tap, replay level matching live, step-back, stop on new call, time-stretch length/pitch/level, replay speed, the VSCS grid placement, Say Again table-order playback (previous/next, pause/resume, progress), coord utterance cutting (noise, frequency loopback and blips ignored, line hang-up), the 10 min coord cap, one replay at a time, coord end to end through vatSys's real Mumble client objects (coord replay level matches live), expiry/wiping, settings, and reading vatSys's key-binding format.
+The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipeline** with Opus packets at real AFV pacing. It covers: the bridge matching the installed vatSys, splitting, blips, stuck-mic splitting, two frequencies at once, duplicate-transceiver collapse, receivers being added/removed, unhook restoring AFV, live audio unchanged by the tap, replay level matching live, replay key repeating the newest call (own transmissions skipped), stop on new call, time-stretch length/pitch/level, replay speed, the VSCS grid placement, Say Again table-order playback (previous/next, pause/resume, progress), coord utterance cutting (noise, frequency loopback and blips ignored, line hang-up), the 10 min coord cap, one replay at a time, coord end to end through vatSys's real Mumble client objects (coord replay level matches live), expiry/wiping, settings, and reading vatSys's key-binding format.
 
 **Not covered offline** (needs vatSys running): the VSCS button with real frequencies drawn beside it, how sped-up speech sounds, the Keyboard window row, DirectInput key polling, the menu/window, and real network audio.
 
@@ -88,7 +88,7 @@ The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipe
 1. Install, start vatSys, connect (Sweatbox has no AFV voice, so use the live network).
 2. Say Again → Settings: the status should read "Listening on N receiver(s)".
 3. *Settings → Keyboard*: "Replay Last" and "Replay Coord" should appear under Quick Text. Set a key and confirm PTT still works afterwards.
-4. Let a few calls come in on two frequencies. Check the list shows the right callsign/frequency, then tap the key and tap again to step back.
+4. Let a few calls come in on two frequencies. Check the list shows the right callsign/frequency, then press the key: it plays the newest call, and pressing again repeats it.
 5. Open a hotline or coldline and have the other controller talk. A "Coord" row should appear for each thing they say, and the Replay Coord key or the COORD button should replay it in your coord audio.
 6. Open Say Again (under Group). Step with Next/Previous, pause and resume, watch the progress bar; open Settings and try 1.25x and 1.5x speed. Switch page during a replay: Say Again shows who/where; right click stops.
 7. Key PTT during a replay; it should stop. Disconnect; the list should empty.
@@ -99,7 +99,7 @@ The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipe
 ```
 src/AFVReplay/
   ReplayPlugin.cs          entry point (MEF IPlugin), wiring, privacy wipes
-  ReplayController.cs      tap / tap-again-to-step-back
+  ReplayController.cs      replay key: most recent call, press again to repeat
   ReplaySettings.cs        preferences only
   Audio/                   tap, recorder, finalizer (dedupe + Opus), store, player, hook
   Input/                   vatSys key-binding format, DirectInput poller

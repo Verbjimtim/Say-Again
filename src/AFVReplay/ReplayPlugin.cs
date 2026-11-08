@@ -97,10 +97,10 @@ namespace AFVReplay
         {
             Store = new ClipStore();
             Player = new ReplayPlayer();
-            Controller = new ReplayController(Store, Player, () => Settings);
+            Controller = new ReplayController(Store, Player);
             CoordStore = new ClipStore(ClipStore.CoordMaxRetention);
             CoordPlayer = new ReplayPlayer();
-            CoordController = new ReplayController(CoordStore, CoordPlayer, () => Settings);
+            CoordController = new ReplayController(CoordStore, CoordPlayer);
             // Only one replay at a time, so it's always clear what you're hearing.
             Player.PlaybackStarted += (s, e) => CoordPlayer.Stop();
             CoordPlayer.PlaybackStarted += (s, e) => Player.Stop();

@@ -30,9 +30,6 @@ namespace AFVReplay
         /// <summary>Replay speed, 100-200 percent, pitch unchanged.</summary>
         public int SpeedPercent { get; set; } = 100;
 
-        /// <summary>Pressing again within this time steps back to the clip before.</summary>
-        public double StepBackWindowSeconds { get; set; } = 4;
-
         public static string DefaultPath =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AFVReplay", "settings.xml");
 
@@ -41,7 +38,6 @@ namespace AFVReplay
             RetentionMinutes = Math.Max(1, Math.Min(5, RetentionMinutes));
             VolumePercent = Math.Max(0, Math.Min(200, VolumePercent));
             SpeedPercent = Math.Max(100, Math.Min(200, SpeedPercent));
-            StepBackWindowSeconds = Math.Max(0.5, Math.Min(15, StepBackWindowSeconds));
             CoordRetentionMinutes = Math.Max(1, Math.Min(10, CoordRetentionMinutes));
             ReplayBinding = ReplayBinding ?? "";
             CoordReplayBinding = CoordReplayBinding ?? "";

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.1
+
+- Replay Last and Replay Coord now always play the most recent call of their kind (your own transmissions skipped); pressing again repeats it from the start instead of stepping back. Older calls are on the Say Again page.
+- Fixed the Say Again list sometimes showing no calls: it could end up scrolled out of range. It now scrolls to fixed positions and corrects itself on every refresh.
+
 ## v0.1.0
 
 First public release.

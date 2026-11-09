@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.3
+
+- Selecting a pilot no longer filters the Say Again list (an empty list was confusing): their calls are highlighted instead, and every call stays listed. **Highlight Selected Pilot** in Settings turns the highlight off.
+
 ## v0.1.1
 
 - Replay Last and Replay Coord now always play the most recent call of their kind (your own transmissions skipped); pressing again repeats it from the start instead of stepping back. Older calls are on the Say Again page.

@@ -643,16 +643,8 @@ namespace AFVReplay.Tests
 
             Assert(list.Current == c1, "remembers where it was, so Older/Newer carry on from there");
 
-            // Selected aircraft: only its calls are listed and stepped through.
             var f3 = F("QFA123", 50); plugin.Store.Add(f3);
-            list.Filter = c => c.Callsigns.Contains("QFA123");
-            Assert(list.Items().SequenceEqual(new[] { f1, f3 }), "filtered to QFA123's calls, newest first");
-            list.Stop(); list.Older(null);
-            Assert(list.Current == f1 || list.Current == f3, "stepping stays within the filter");
-            list.Older(f1);
-            Assert(list.Current == f3, "Previous goes to the aircraft's older call, got " + list.Current?.CallsignText);
-            list.Filter = null;
-            Assert(list.Items().Count == 5, "filter cleared: all calls back");
+            Assert(list.Items().Count == 5, "every call listed");
             list.Stop();
             Assert(AFVReplay.UI.SayAgainPage.AgoLong(TimeSpan.FromSeconds(20)) == "<1 min ago"
                 && AFVReplay.UI.SayAgainPage.AgoLong(TimeSpan.FromSeconds(70)) == "1 min ago"
@@ -1262,6 +1254,22 @@ namespace AFVReplay.Tests
                 Console.WriteLine($"     opened: {list.Items.Count} calls, row 0 at {top0}, list {height} px high");
                 Assert(list.Items.Count == 8, "8 calls listed, got " + list.Items.Count);
                 Assert(top0 > 0 && top0 < 40, "first call shows just under the header, row 0 at " + top0);
+
+                // Selecting a pilot highlights their calls and hides nothing.
+                AFVReplay.UI.SayAgainPage.PilotOverride = () => ("acft3", "Test Pilot");
+                try
+                {
+                    page.RefreshView(); Pump();
+                    Assert(list.Items.Count == 8, "a selected pilot doesn't filter the list, " + list.Items.Count + " calls");
+                    var marked = list.Items.Cast<System.Windows.Forms.ListViewItem>().Where(i => page.IsHighlighted((Clip)i.Tag)).ToList();
+                    Assert(marked.Count == 1 && ((Clip)marked[0].Tag).Callsigns[0] == "ACFT3", "only ACFT3's call is highlighted (case-insensitive), got " + marked.Count);
+                    plugin.Settings.HighlightSelectedPilot = false;
+                    Assert(!list.Items.Cast<System.Windows.Forms.ListViewItem>().Any(i => page.IsHighlighted((Clip)i.Tag)), "Highlight Selected Pilot off: nothing highlighted");
+                    plugin.Settings.HighlightSelectedPilot = true;
+                }
+                finally { AFVReplay.UI.SayAgainPage.PilotOverride = null; }
+                page.RefreshView(); Pump();
+                Assert(!list.Items.Cast<System.Windows.Forms.ListViewItem>().Any(i => page.IsHighlighted((Clip)i.Tag)), "nothing highlighted once deselected");
                 form.Close();
             }
         }

@@ -16,17 +16,9 @@ namespace AFVReplay
 
         public SayAgainPlaylist(ReplayPlugin plugin) { this.plugin = plugin; }
 
-        /// <summary>Optional: only calls this accepts are listed and stepped through (e.g. the selected aircraft's).</summary>
-        public System.Func<Clip, bool> Filter { get; set; }
-
-        /// <summary>Frequency and coord calls together, newest first (filtered when <see cref="Filter"/> is set).</summary>
-        public List<Clip> Items()
-        {
-            var all = plugin.Store.Snapshot().Concat(plugin.CoordStore.Snapshot());
-            var filter = Filter;
-            if (filter != null) all = all.Where(filter);
-            return all.OrderByDescending(c => c.EndUtc).ToList();
-        }
+        /// <summary>Frequency and coord calls together, newest first.</summary>
+        public List<Clip> Items() =>
+            plugin.Store.Snapshot().Concat(plugin.CoordStore.Snapshot()).OrderByDescending(c => c.EndUtc).ToList();
 
         /// <summary>The call playing or paused, else the last one played from the page (if still kept).</summary>
         public Clip Current

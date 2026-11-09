@@ -27,6 +27,7 @@ namespace AFVReplay.UI
         private static Color Interactive => Colours.GetColour(Colours.Identities.InteractiveText);
         private static Color NonInteractive => Colours.GetColour(Colours.Identities.NonInteractiveText);
         private static Color RowSelected => Colours.GetColour(Colours.Identities.WindowButtonSelected);
+        private static Color Highlighted => Colours.GetColour(Colours.Identities.HighlightedText);
         private static Color Depressed => Colours.GetColour(Colours.Identities.WindowButtonDepressed);
 
         private readonly ReplayPlugin plugin;
@@ -336,11 +337,14 @@ namespace AFVReplay.UI
             var last = freq.FirstOrDefault(c => !c.IsOwn);
             lastTx.Text = last == null ? "None" : $"{Who(last)} - {Where(last)} ({AgoLong(now - last.EndUtc)})";
 
-            // A selected aircraft filters the list (and Next/Previous) to its calls.
+            // A selected aircraft's calls are highlighted in the list (nothing is hidden).
             var (callsign, name) = SelectedPilot();
             selected.Text = callsign == null ? "No pilot selected" : string.IsNullOrWhiteSpace(name) ? callsign : $"{callsign}, {name}";
-            playlist.Filter = callsign == null ? null
-                : (Func<Clip, bool>)(c => c.Callsigns.Any(s => string.Equals(s, callsign, StringComparison.OrdinalIgnoreCase)));
+            if (!string.Equals(callsign, highlight, StringComparison.OrdinalIgnoreCase))
+            {
+                highlight = callsign;
+                list.Invalidate();
+            }
 
             SyncList(playlist.Items(), now);
 
@@ -363,6 +367,15 @@ namespace AFVReplay.UI
         }
 
         private Clip followed;
+
+        /// <summary>Callsign of the selected aircraft, whose calls are highlighted (null when none).</summary>
+        private string highlight;
+
+        internal bool IsHighlighted(Clip c)
+        {
+            var cs = highlight;
+            return cs != null && plugin.Settings.HighlightSelectedPilot && c.Callsigns.Any(s => string.Equals(s, cs, StringComparison.OrdinalIgnoreCase));
+        }
 
         private ListViewItem FindItem(Clip c)
         {
@@ -473,13 +486,40 @@ namespace AFVReplay.UI
         {
             var clip = (Clip)e.Item.Tag;
             bool playing = plugin.Player.PlayingClip == clip || plugin.CoordPlayer.PlayingClip == clip;
-            var back = e.Item.Selected ? RowSelected : WinBg;
+            // The selected aircraft's calls: the row tinted with vatSys's highlight colour (cyan in the
+            // Australia profile, too light for text on the grey list, so it tints the row instead).
+            // Selected as well: the usual selected row, with the text in the highlight colour.
+            bool mine = IsHighlighted(clip);
+            var back = e.Item.Selected ? RowSelected : mine ? Blend(WinBg, Highlighted, 0.45) : WinBg;
             using (var b = new SolidBrush(back)) e.Graphics.FillRectangle(b, e.Bounds);
-            var colour = clip.IsWiped ? NonInteractive : Interactive;
-            if (e.Item.Selected) colour = Readable(WinBg, back);
+            var colour = clip.IsWiped ? NonInteractive : Readable(Interactive, back);
+            if (e.Item.Selected) colour = Readable(mine ? Highlighted : WinBg, back);
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, playing ? listBold : listFont, Inset(e.Bounds), colour,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
+
+        /// <summary>An On/Off row in vatSys's toggle-button style.</summary>
+        private void AddToggle(TableLayoutPanel t, string label, bool value, Action<bool> set)
+        {
+            var toggle = VatSysBridge.CreateToggleButton();
+            toggle.Size = new Size(90, 22);
+            toggle.Font = MMI.eurofont_winverysml;
+            toggle.BackColor = VscsBg;
+            toggle.Margin = new Padding(2, 1, 2, 1);
+            toggle.Anchor = AnchorStyles.Left;
+            toggle.Checked = value;
+            toggle.Text = value ? "On" : "Off";
+            toggle.CheckedChanged += (o, e) =>
+            {
+                set(toggle.Checked);
+                toggle.Text = toggle.Checked ? "On" : "Off";
+                plugin.ApplySettings();
+            };
+            AddRow(t, SettingLabel(label), toggle);
+        }
+
+        private static Color Blend(Color a, Color b, double t) =>
+            Color.FromArgb((int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
 
         private static Color Readable(Color preferred, Color background)
         {
@@ -505,21 +545,8 @@ namespace AFVReplay.UI
             AddSetting(t, "Volume", 0, 200, s.VolumePercent, v => v + "%", v => s.VolumePercent = v, step: 5);
             AddSetting(t, "Speed", 100, 200, s.SpeedPercent, v => (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture) + "x", v => s.SpeedPercent = v, step: 5);
 
-            var toggle = VatSysBridge.CreateToggleButton();
-            toggle.Size = new Size(90, 24);
-            toggle.Font = MMI.eurofont_winverysml;
-            toggle.BackColor = VscsBg;
-            toggle.Margin = new Padding(2, 2, 2, 2);
-            toggle.Anchor = AnchorStyles.Left;
-            toggle.Checked = s.StopOnNewCall;
-            toggle.Text = s.StopOnNewCall ? "On" : "Off";
-            toggle.CheckedChanged += (o, e) =>
-            {
-                s.StopOnNewCall = toggle.Checked;
-                toggle.Text = s.StopOnNewCall ? "On" : "Off";
-                plugin.ApplySettings();
-            };
-            AddRow(t, SettingLabel("Stop On New"), toggle);
+            AddToggle(t, "Stop On New", s.StopOnNewCall, v => s.StopOnNewCall = v);
+            AddToggle(t, "Highlight Selected Pilot", s.HighlightSelectedPilot, v => { s.HighlightSelectedPilot = v; list.Invalidate(); });
 
             statusLabel = new TextLabel(false) { AutoSize = true, TextAlign = ContentAlignment.TopLeft, Font = MMI.eurofont_winverysml, ForeColor = NonInteractive, BackColor = WinBg, Margin = new Padding(0, 6, 0, 0) };
             int row = AddRow(t, statusLabel, null);
@@ -549,7 +576,7 @@ namespace AFVReplay.UI
             var slider = new Slider
             {
                 Minimum = 0, Maximum = max - min, Value = Math.Max(min, Math.Min(max, value)) - min,
-                Dock = DockStyle.Fill, Height = 28, BackColor = WinBg, ForeColor = Depressed, FontColor = Interactive,
+                Dock = DockStyle.Fill, Height = 24, BackColor = WinBg, ForeColor = Depressed, FontColor = Interactive,
                 Font = MMI.eurofont_winverysml, CustomPaintText = true, Cursor = Cursors.NoMoveHoriz, Margin = new Padding(2, 1, 2, 1),
                 SmallChange = step, LargeChange = step * 5,
             };

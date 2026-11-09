@@ -1,6 +1,6 @@
 # Say Again
 
-vatSys plugin that keeps the last few minutes of AFV frequency calls and hotline/coldline coord in memory so you can replay a missed call. Replay keys in vatSys's Keyboard settings, and a Say Again page on the VSCS to browse, filter by the selected aircraft and play back. Memory only, never saved, wiped on disconnect.
+vatSys plugin that keeps the last few minutes of AFV frequency calls and hotline/coldline coord in memory so you can replay a missed call. Replay keys in vatSys's Keyboard settings, and a Say Again page on the VSCS to browse (the selected aircraft's calls highlighted) and play back. Memory only, never saved, wiped on disconnect.
 
 | Say Again page | Playing | Settings |
 | --- | --- | --- |
@@ -22,9 +22,9 @@ Keeps the last few minutes of received AFV transmissions, and of hotline/coldlin
 - **Say Again page on the VSCS**, in the page area where Setup, Coord and Text go:
   - **Getting there:** **Say Again** is a fifth menu button under Group, behaving like Setup, Coord and Text. The plugin raises the VSCS window's minimum height (318 → 386 px) so it always fits, and puts vatSys's original minimum back when it unloads. Clicking a frequency or menu button leaves the page, like any page change.
   - **Buttons:** Settings, ▲ (next), ▶ (play/pause, underlined), ▼ (previous). Next moves up the list (newer), Previous down it (older), in table order (frequency and coord together, newest first). While the page is open only Say Again shows pressed (vatSys sits on its Monitor page underneath). While a call plays, Play becomes a status button (in the VSCS receiving colour, like a frequency button receiving, with who and where, e.g. `QFA123` / `118.500`); click to pause, right click to stop. A call that finishes just stops.
-  - **Call-outs:** **Last Tx** (`Callsign - FREQ (X mins ago)`, the most recent frequency call) and **Selected** (`callsign, name` of the pilot selected in vatSys). While a pilot is selected, the list (and ▲/▼) shows only that aircraft's calls.
+  - **Call-outs:** **Last Tx** (`Callsign - FREQ (X mins ago)`, the most recent frequency call) and **Selected** (`callsign, name` of the pilot selected in vatSys). While a pilot is selected, that aircraft's calls are highlighted in the list (rows tinted with vatSys's Highlighted Text colour; turn it off with **Highlight Selected Pilot** in Settings). Nothing is hidden, and ▲/▼ still step through every call.
   - **List:** Ago (whole minutes), Freq, Callsign, Length, with a **progress bar** under it showing how far into the replay you are.
-  - **Settings** (hidden until the Settings button is pressed, fits without scrolling): Keep Calls, Keep Coord, Volume, Speed, Stop On New Call, and the listening status.
+  - **Settings** (hidden until the Settings button is pressed, fits without scrolling): Keep Calls, Keep Coord, Volume, Speed, Stop On New Call, Highlight Selected Pilot, and the listening status.
   - **While a call replays and the page isn't open**, Say Again itself shows who and where in the VSCS receiving colour; right click stops it. Only one replay plays at a time.
 - **Replay speed** 1.00x–2.00x (pitch unchanged), set in the Say Again window.
 - Replay stops automatically when you key PTT, and (optionally, on by default) when a new call comes in.

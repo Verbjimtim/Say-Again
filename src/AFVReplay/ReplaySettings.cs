@@ -24,6 +24,9 @@ namespace AFVReplay
         /// <summary>Stop a replay as soon as a new call comes in.</summary>
         public bool StopOnNewCall { get; set; } = true;
 
+        /// <summary>Highlight the selected aircraft's calls in the Say Again list.</summary>
+        public bool HighlightSelectedPilot { get; set; } = true;
+
         /// <summary>Replay volume, 0-200 percent, on top of the vatSys output volume.</summary>
         public int VolumePercent { get; set; } = 100;
 

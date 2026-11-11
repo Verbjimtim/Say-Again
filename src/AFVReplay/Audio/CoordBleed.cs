@@ -19,17 +19,26 @@ namespace AFVReplay.Audio
         /// <summary>Coord clips of the same speaker overlapping a frequency clip by this much are duplicates.</summary>
         public const double SameSpeakerOverlap = 0.5;
 
-        /// <summary>Quiet coord audio (real RMS) that mostly coincides with frequency traffic is loopback.</summary>
-        public const double LoopbackLevel = 0.015;
+        /// <summary>
+        /// Loopback: vatSys mixes a controller's frequency audio into their line at 1.4% (about -37 dB).
+        /// Coord audio that mostly coincides with frequency traffic and is below this fraction of that
+        /// traffic's speech level (about -26 dB, a 3-4x margin over the loopback) is that copy. Real line
+        /// speech, even a quiet raw mic on a busy frequency, is well above it.
+        /// </summary>
+        public const double LoopbackRatio = 0.05;
         public const double LoopbackOverlap = 0.6;
 
-        public static bool IsDuplicate(RawRecording coordRec, double realRms, IReadOnlyList<Clip> freqClips)
+        /// <summary>Loopback threshold (real speech RMS) when the frequency traffic's level isn't known.</summary>
+        public const double LoopbackFloor = 0.004;
+
+        /// <param name="speechLevel">The coord utterance's speech level (<see cref="AudioLevel.Speech"/>).</param>
+        public static bool IsDuplicate(RawRecording coordRec, double speechLevel, IReadOnlyList<Clip> freqClips)
         {
             string speaker = coordRec.Callsigns.FirstOrDefault();
             double total = (coordRec.EndUtc - coordRec.StartUtc).TotalSeconds;
             if (total <= 0) return false;
 
-            double anyOverlap = 0;
+            double anyOverlap = 0, loudest = 0;
             foreach (var f in freqClips)
             {
                 if (f.IsCoord) continue;
@@ -41,8 +50,10 @@ namespace AFVReplay.Audio
                     return true;
                 }
                 anyOverlap += o;
+                loudest = Math.Max(loudest, f.SpeechLevel);
             }
-            return realRms < LoopbackLevel && Math.Min(anyOverlap, total) / total >= LoopbackOverlap;
+            double threshold = loudest > 0 ? loudest * LoopbackRatio : LoopbackFloor;
+            return speechLevel < threshold && Math.Min(anyOverlap, total) / total >= LoopbackOverlap;
         }
 
         private static double Overlap(DateTime a0, DateTime a1, DateTime b0, DateTime b1)

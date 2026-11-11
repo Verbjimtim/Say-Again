@@ -42,6 +42,9 @@ namespace AFVReplay.Audio
         /// <summary>Your own voice: a PTT transmission, or your side of a line.</summary>
         public bool IsOwn { get; }
 
+        /// <summary>Speech level (real RMS, see <see cref="AudioLevel.Speech"/>); 0 when unknown.</summary>
+        public double SpeechLevel { get; internal set; }
+
         /// <summary>A hotline/coldline call rather than a frequency transmission.</summary>
         public bool IsCoord => FrequencyHz == 0;
 

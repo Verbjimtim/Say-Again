@@ -41,26 +41,35 @@ namespace AFVReplay.Audio
                               null, TimeSpan.Zero, interval);
         }
 
+        /// <summary>
+        /// Hooks vatSys's current coord connection, and moves the hook whenever vatSys replaces it
+        /// (a reconnect, e.g. by the MumbleReconnect plugin, builds a new protocol and mixer: staying on
+        /// the old ones would hear nothing from other controllers and play coord replays nowhere).
+        /// </summary>
         public void Tick()
         {
             lock (sync)
             {
-                if (subscription == null)
+                var mumble = getMumble();
+                var p = mumble == null ? null : VatSysBridge.GetMumbleProtocol(mumble);
+                var m = mumble == null ? null : VatSysBridge.GetMumbleMixer(mumble);
+
+                if (!ReferenceEquals(p, protocol))
                 {
-                    var mumble = getMumble();
-                    if (mumble != null)
+                    if (subscription != null) { try { VatSysBridge.UnsubscribeCoordAudio(protocol, subscription); } catch { } }
+                    subscription = null;
+                    protocol = p;
+                    if (p != null)
                     {
-                        var p = VatSysBridge.GetMumbleProtocol(mumble);
-                        var m = VatSysBridge.GetMumbleMixer(mumble);
-                        if (p != null && m != null)
-                        {
-                            subscription = VatSysBridge.SubscribeCoordAudio(p, OnAudio);
-                            protocol = p;
-                            m.AddMixerInput(player);
-                            mixer = m;
-                            Diag.Info("hooked coord audio");
-                        }
+                        subscription = VatSysBridge.SubscribeCoordAudio(p, OnAudio);
+                        Diag.Info("hooked coord audio");
                     }
+                }
+                if (!ReferenceEquals(m, mixer))
+                {
+                    try { mixer?.RemoveMixerInput(player); } catch { }
+                    mixer = m;
+                    m?.AddMixerInput(player);
                 }
             }
             recorder.Tick();
@@ -78,11 +87,8 @@ namespace AFVReplay.Audio
         {
             lock (sync)
             {
-                if (subscription != null)
-                {
-                    try { VatSysBridge.UnsubscribeCoordAudio(protocol, subscription); } catch { }
-                    try { mixer?.RemoveMixerInput(player); } catch { }
-                }
+                if (subscription != null) { try { VatSysBridge.UnsubscribeCoordAudio(protocol, subscription); } catch { } }
+                try { mixer?.RemoveMixerInput(player); } catch { }
                 subscription = null;
                 protocol = null;
                 mixer = null;

@@ -80,7 +80,7 @@ namespace AFVReplay.UI
                 BackColor = WinBg, ForeColor = Interactive, Font = listFont,
             };
             list.Columns.Add("Ago", 42);
-            list.Columns.Add("Freq", 72);
+            list.Columns.Add("Freq", 84); // fits "Coldline"
             list.Columns.Add("Callsign", 128);
             list.Columns.Add("Length", 62);
             list.DrawColumnHeader += List_DrawColumnHeader;
@@ -461,10 +461,10 @@ namespace AFVReplay.UI
 
         internal static string Who(Clip c) => c.IsCoord ? c.CallsignText : c.IsOwn ? "You" : c.Callsigns.FirstOrDefault() ?? "?";
 
-        /// <summary>"118.500" for a frequency call (the last word of "Gingin T 118.500"), "Coord" for a line call.</summary>
+        /// <summary>"118.500" for a frequency call (the last word of "Gingin T 118.500"); "Hotline", "Coldline" or "Coord" for a line call.</summary>
         internal static string Where(Clip c)
         {
-            if (c.IsCoord) return "Coord";
+            if (c.IsCoord) return string.IsNullOrEmpty(c.FrequencyName) ? "Coord" : c.FrequencyName;
             var parts = (c.FrequencyName ?? "").Split(' ');
             return parts[parts.Length - 1];
         }

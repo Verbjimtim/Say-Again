@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace AFVReplay.Audio
 {
@@ -20,8 +21,12 @@ namespace AFVReplay.Audio
         public static readonly int MaxClipSamples = AudioFormat.SampleRate * 90;
         public static readonly TimeSpan StreamTimeout = TimeSpan.FromMilliseconds(400);
 
-        /// <summary>Real-level RMS below which nothing counts as speech, whatever the noise floor.</summary>
-        public const float AbsoluteSpeechRms = 0.01f;
+        /// <summary>
+        /// Real-level RMS below which nothing counts as speech, whatever the noise floor. Low, because
+        /// vatSys sends other controllers' raw mic on lines (often quiet); the noise-floor test and the
+        /// loopback check in <see cref="CoordBleed"/> keep line noise and frequency loopback out.
+        /// </summary>
+        public const float AbsoluteSpeechRms = 0.005f;
 
         /// <summary>Speech must be this many times the noise floor (about 12 dB).</summary>
         public const float FloorRatio = 4f;
@@ -40,6 +45,19 @@ namespace AFVReplay.Audio
         }
 
         private static int Ms(int ms) => AudioFormat.SampleRate * ms / 1000;
+
+        /// <summary>
+        /// True while any line is open: vatSys streams an open line continuously (silence included),
+        /// so a stream that is still receiving packets means the call is still connected.
+        /// </summary>
+        public bool LineOpen
+        {
+            get
+            {
+                var now = clock();
+                lock (sync) return streams.Values.Any(s => now - s.LastPacketUtc < StreamTimeout);
+            }
+        }
 
         public bool IsRecording(string user)
         {

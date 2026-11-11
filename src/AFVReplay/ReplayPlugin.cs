@@ -51,7 +51,10 @@ namespace AFVReplay
                 if (disabledReason != null || coordDisabledReason != null) return "Coord unavailable";
                 if (coordHook == null || !coordHook.IsHooked) return "Coord: waiting";
                 var (remote, own, dropped) = coordConversation.Counts;
-                return $"Coord: {remote} heard, {own} you" + (dropped > 0 ? $", {dropped} dup" : "");
+                var lines = VatSysBridge.GetActiveLines();
+                string lineText = lines.Count == 0 ? "no lines open"
+                    : string.Join(", ", lines.Select(l => $"{l.Callsign ?? "?"} {l.Type.ToLowerInvariant()} {l.State.ToLowerInvariant()}"));
+                return $"Coord: {remote} heard, {own} you" + (dropped > 0 ? $", {dropped} dup" : "") + "; " + lineText;
             }
         }
 
@@ -174,7 +177,9 @@ namespace AFVReplay
             }
             coordFinalizer = new ClipFinalizer(CoordStore, _ => "Coord");
             // Utterances from both sides -> conversations (bleed-checked, mixed) -> encoded clips.
-            coordConversation = new CoordConversation(coordFinalizer.Enqueue, () => Store.Snapshot());
+            coordConversation = new CoordConversation(coordFinalizer.Enqueue, () => Store.Snapshot(),
+                // One clip per line call, pauses included: vatSys's line state, backed up by line audio arriving.
+                lineOpen: () => coordRecorder?.LineOpen ?? false, lines: VatSysBridge.GetActiveLines);
             coordRecorder = new CoordRecorder(coordConversation.Add,
                 user => { if (Settings.StopOnNewCall) CoordPlayer.Stop(); });
             coordHook = new CoordHook(VatSysBridge.GetMumble, coordRecorder, CoordPlayer, CoordStore, coordConversation.Tick);

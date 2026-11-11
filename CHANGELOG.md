@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.4
+
+- Fixed coord recording only your side of a line call after vatSys's coord connection was rebuilt (e.g. by the MumbleReconnect plugin): the plugin stayed on the old connection and heard no other controllers, and coord replays had nowhere to play. It now follows the connection when it changes.
+- Line calls use vatSys's own hotline/coldline state: a call is one clip from when the line opens until it closes (ringing doesn't count), pauses included at their real length. Line audio still arriving is the backup. Calls with pauses over 4 s used to be split into several clips. Very long calls split at 5 minutes.
+- The Freq column (and the VSCS status button) shows **Hotline** or **Coldline** for a line call, and the clip lists who the line was with even if they never spoke.
+- Fixed the other controller missing from line calls when the frequency was busy: quiet line speech (vatSys sends the raw mic) overlapping frequency traffic was taken for vatSys's faint frequency loopback. Loopback is now judged against the overlapping frequency call's own level (the real loopback is 1.4% of it), using speech level rather than an average that pauses drag down. Quieter line speech is picked up too.
+- A line with no controller attached in vatSys (seen on a coldline) falls back to the line's name for the clip's callsign.
+- Settings status shows the lines vatSys reports (e.g. `ML-ELW_CTR hotline open`).
+
 ## v0.1.3
 
 - Selecting a pilot no longer filters the Say Again list (an empty list was confusing): their calls are highlighted instead, and every call stays listed. **Highlight Selected Pilot** in Settings turns the highlight off.

@@ -101,6 +101,39 @@ namespace AFVReplay.VatSys
         /// <summary>vatSys's coord mic mix (what it sends on open lines), or null.</summary>
         public static object GetMumbleInputMix(object mumble) => mumble == null ? null : MumbleAudioIn.GetValue(mumble);
 
+        private static IReadOnlyList<AFVReplay.Audio.LineInfo> lastLines = Array.Empty<AFVReplay.Audio.LineInfo>();
+
+        /// <summary>
+        /// vatSys's hotlines and coldlines (public plugin API: Audio.VSCSLines) other than closed ones,
+        /// with who they are to and their state. Monitor lines are left out (not calls). Read from a
+        /// timer thread while vatSys may be changing the list, so a failed read returns the last good one.
+        /// </summary>
+        public static IReadOnlyList<AFVReplay.Audio.LineInfo> GetActiveLines()
+        {
+            try
+            {
+                var lines = vatsys.Audio.VSCSLines;
+                if (lines == null) return lastLines = Array.Empty<AFVReplay.Audio.LineInfo>();
+                var result = new List<AFVReplay.Audio.LineInfo>();
+                foreach (var l in lines.ToArray())
+                {
+                    if (l == null) continue;
+                    if (l.Type != vatsys.VSCSLineTypes.Hotline && l.Type != vatsys.VSCSLineTypes.Coldline) continue;
+                    if (l.State == vatsys.VSCSLineStates.Closed || l.State == vatsys.VSCSLineStates.None) continue;
+                    string callsign = null;
+                    try { callsign = l.ATC?.Callsign; } catch { }
+                    if (string.IsNullOrWhiteSpace(callsign)) { try { callsign = l.Name; } catch { } } // e.g. a coldline with no ATC attached
+                    if (string.IsNullOrWhiteSpace(callsign)) callsign = null;
+                    result.Add(new AFVReplay.Audio.LineInfo(callsign, l.Type.ToString(), l.State.ToString()));
+                }
+                return lastLines = result;
+            }
+            catch
+            {
+                return lastLines;
+            }
+        }
+
         /// <summary>True while vatSys is sending your mic to at least one open line.</summary>
         public static bool IsCoordSending(object mumble)
         {

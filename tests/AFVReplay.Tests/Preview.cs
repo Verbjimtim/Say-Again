@@ -58,14 +58,14 @@ namespace AFVReplay.Tests
             var pcm = new short[48000 * 3];
             Clip F(string who, double ago, bool own = false) => new Clip(plugin.Store.NextId(), now.AddSeconds(-ago - 3), now.AddSeconds(-ago), 118_500_000, "Gingin T 118.500",
                 new[] { who }, false, OpusCodec.Encode(pcm, pcm.Length), pcm.Length, own);
-            Clip C(string[] who, double ago) => new Clip(plugin.CoordStore.NextId(), now.AddSeconds(-ago - 3), now.AddSeconds(-ago), 0, "Coord",
+            Clip C(string[] who, double ago, string line = "Hotline") => new Clip(plugin.CoordStore.NextId(), now.AddSeconds(-ago - 3), now.AddSeconds(-ago), 0, line,
                 who, false, OpusCodec.Encode(pcm, pcm.Length), pcm.Length);
             plugin.CoordStore.Add(C(new[] { "GIG_GND" }, 20));
-            plugin.CoordStore.Add(C(new[] { "GIG_GND", "You" }, 70));
+            plugin.CoordStore.Add(C(new[] { "ML-BIK_CTR", "You" }, 70, "Coldline"));
             plugin.Store.Add(F("QFA123", 75));
             plugin.Store.Add(F("GIG_TWR", 130, own: true));
             plugin.Store.Add(F("QFA123", 140));
-            plugin.CoordStore.Add(C(new[] { "GIG_GND", "You" }, 200));
+            plugin.CoordStore.Add(C(new[] { "GIG_GND", "You" }, 200, "Coord"));
             plugin.Store.Add(F("VOZ456", 250));
 
             var vscs = (Form)Activator.CreateInstance(asm.GetType("vatsys.VSCSWindow"), true);

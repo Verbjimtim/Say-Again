@@ -60,6 +60,9 @@ namespace AFVReplay.Tests
             Run(nameof(OwnTxRecordsWhilePttHeld), OwnTxRecordsWhilePttHeld);
             Run(nameof(CoordBleedDropsDuplicates), CoordBleedDropsDuplicates);
             Run(nameof(ConversationMixesBothSides), ConversationMixesBothSides);
+            Run(nameof(ConversationLastsWhileLineOpen), ConversationLastsWhileLineOpen);
+            Run(nameof(ConversationFollowsVatSysLineState), ConversationFollowsVatSysLineState);
+            Run(nameof(QuietLineSpeechOnBusyFrequencyKept), QuietLineSpeechOnBusyFrequencyKept);
             Run(nameof(EndToEnd_RealVatSysMicInputs), EndToEnd_RealVatSysMicInputs);
 
             Console.WriteLine();
@@ -868,6 +871,9 @@ namespace AFVReplay.Tests
                     foreach (var p in line.Packets(0.6, 0)) VatSysBridge.RaiseCoordAudio(protocol, user, p);
                     foreach (var p in line.Packets(1.5, 0.2)) VatSysBridge.RaiseCoordAudio(protocol, user, p);
                     foreach (var p in line.Packets(1.6, 0)) VatSysBridge.RaiseCoordAudio(protocol, user, p);
+                    Assert(recorder.LineOpen, "an open line (packets arriving, silence included) counts as open");
+                    System.Threading.Thread.Sleep(CoordRecorder.StreamTimeout + TimeSpan.FromMilliseconds(100));
+                    Assert(!recorder.LineOpen, "no packets: the line has closed");
                     finalizer.Drain(TimeSpan.FromSeconds(5));
 
                     var clips = plugin.CoordStore.Snapshot();
@@ -901,6 +907,28 @@ namespace AFVReplay.Tests
                     Console.WriteLine($"     coord clip {c.Duration.TotalSeconds:0.00}s, live level {live:0.000}, replay level {replay:0.000}");
                     Assert(live > 0.05, "live coord should reach the output, rms " + live);
                     Assert(Math.Abs(replay - live) / live < 0.15, $"coord replay should match live: {replay:0.000} vs {live:0.000}");
+
+                    // vatSys's line connection is rebuilt (a reconnect, e.g. by the MumbleReconnect
+                    // plugin). Seen live: the hook stayed on the old one and heard nobody ("0 heard").
+                    plugin.StopAll();
+                    var mumble2 = Activator.CreateInstance(mumbleType, true);
+                    instanceField.SetValue(null, mumble2);
+                    hook.Tick();
+                    var protocol2 = VatSysBridge.GetMumbleProtocol(mumble2);
+                    var mixer2 = VatSysBridge.GetMumbleMixer(mumble2);
+                    Assert(!ReferenceEquals(protocol2, protocol), "the test really has a new connection");
+                    Assert(mixer2.MixerInputs.Contains(plugin.CoordPlayer) && !mixer.MixerInputs.Contains(plugin.CoordPlayer),
+                        "coord player moves to the new coord mixer");
+                    user.Name = "ML_APP";
+                    foreach (var p in line.Packets(0.6, 0)) VatSysBridge.RaiseCoordAudio(protocol2, user, p);
+                    foreach (var p in line.Packets(1.5, 0.2)) VatSysBridge.RaiseCoordAudio(protocol2, user, p);
+                    foreach (var p in line.Packets(1.6, 0)) VatSysBridge.RaiseCoordAudio(protocol2, user, p);
+                    finalizer.Drain(TimeSpan.FromSeconds(5));
+                    Assert(plugin.CoordStore.Snapshot().Any(x => x.CallsignText == "ML_APP"), "after the reconnect, the other controller is heard again");
+                    foreach (var p in line.Packets(1.0, 0.2)) VatSysBridge.RaiseCoordAudio(protocol, user, p);
+                    Assert(!recorder.IsRecording("ML_APP"), "the old connection is no longer listened to");
+                    user.Name = "ML-BIK_CTR";
+                    protocol = protocol2; mixer = mixer2;
 
                     hook.Unhook();
                     Assert(!hook.IsHooked && !mixer.MixerInputs.Contains(plugin.CoordPlayer), "unhook should remove the player");
@@ -953,9 +981,9 @@ namespace AFVReplay.Tests
             Assert(done.Count == 2 && !rec.IsRecording, "should close when the mic stops");
         }
 
-        private static Clip FreqClip(string callsign, DateTime start, double secs, bool own = false) =>
+        private static Clip FreqClip(string callsign, DateTime start, double secs, bool own = false, double level = 0.14) =>
             new Clip(1, start, start.AddSeconds(secs), 124_400_000, "124.400", new[] { callsign }, false,
-                     OpusCodec.Encode(new short[960], 960), 960, own);
+                     OpusCodec.Encode(new short[960], 960), 960, own) { SpeechLevel = level };
 
         private static RawRecording CoordRec(string speaker, DateTime start, double secs, bool own = false) =>
             new RawRecording { Pcm = new short[960], Length = 960, StartUtc = start, EndUtc = start.AddSeconds(secs),
@@ -973,12 +1001,21 @@ namespace AFVReplay.Tests
             var pilot = FreqClip("QFA1", t, 3);
             Assert(!CoordBleed.IsDuplicate(CoordRec("ML-BIK_CTR", t, 3), 0.12, new[] { pilot }),
                    "real coord speech during frequency traffic must be kept");
-            // Pilot audio leaking faintly through Bik's line (vatSys mixes it in at 1.4%): dropped.
-            Assert(CoordBleed.IsDuplicate(CoordRec("ML-BIK_CTR", t.AddSeconds(0.2), 2.5), 0.01, new[] { pilot }),
-                   "quiet coord audio matching frequency traffic is loopback");
+            // Pilot audio leaking faintly through Bik's line (vatSys mixes it in at 1.4%: 0.14 -> 0.002): dropped.
+            Assert(CoordBleed.IsDuplicate(CoordRec("ML-BIK_CTR", t.AddSeconds(0.2), 2.5), 0.14 * 0.014, new[] { pilot }),
+                   "faint coord audio matching frequency traffic is loopback");
+            // Seen live: SY_APP talking on a coldline (quiet raw mic) while 128.300 was busy was dropped as
+            // loopback by the old fixed 0.015 threshold. Quiet but real speech must be kept.
+            Assert(!CoordBleed.IsDuplicate(CoordRec("SY_APP", t.AddSeconds(0.2), 2.5), 0.011, new[] { pilot }),
+                   "quiet real line speech during busy frequency traffic must be kept");
             // Quiet but on its own (soft-spoken controller, nothing on frequency): kept.
-            Assert(!CoordBleed.IsDuplicate(CoordRec("ML-BIK_CTR", t.AddSeconds(10), 2), 0.01, new[] { pilot }),
+            Assert(!CoordBleed.IsDuplicate(CoordRec("ML-BIK_CTR", t.AddSeconds(10), 2), 0.003, new[] { pilot }),
                    "quiet coord with no frequency traffic must be kept");
+            // Frequency level unknown: a small fixed threshold.
+            var unknown = FreqClip("QFA2", t.AddSeconds(30), 3, level: 0);
+            Assert(CoordBleed.IsDuplicate(CoordRec("ML-BIK_CTR", t.AddSeconds(30.2), 2.5), 0.002, new[] { unknown })
+                   && !CoordBleed.IsDuplicate(CoordRec("ML-BIK_CTR", t.AddSeconds(30.2), 2.5), 0.011, new[] { unknown }),
+                   "unknown frequency level: faint dropped, quiet speech kept");
 
             // You keying PTT with a line open: your line copy is a duplicate of your transmission.
             var myTx = FreqClip("SY_TWR", t.AddSeconds(20), 2, own: true);
@@ -1064,6 +1101,139 @@ namespace AFVReplay.Tests
             }
             freqFinalizer.Dispose();
             coordFinalizer.Dispose();
+        }
+
+        /// <summary>
+        /// Seen live: one call with ML-ELW_CTR came out as four clips, because it had pauses longer
+        /// than the old 4 s gap. A call now lasts as long as the line is open, pauses included.
+        /// </summary>
+        private static void ConversationLastsWhileLineOpen()
+        {
+            var done = new List<RawRecording>();
+            var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            var now = t0;
+            bool open = true;
+            var conv = new CoordConversation(done.Add, () => Array.Empty<Clip>(), () => now, () => open);
+            RawRecording Utter(string who, double at, double secs, bool own) => new RawRecording
+            {
+                Pcm = Tone(secs, own ? 500 : 300, 0.2).Select(v => (short)(v / AudioFormat.StorageHeadroom * short.MaxValue)).ToArray(),
+                Length = (int)(48000 * secs), StartUtc = t0.AddSeconds(at), EndUtc = t0.AddSeconds(at + secs),
+                FrequencyHz = 0, Callsigns = new List<string> { who }, IsOwn = own,
+            };
+            void Run(double until) { while (now < t0.AddSeconds(until)) { now = now.AddMilliseconds(250); conv.Tick(); } }
+
+            conv.Add(Utter("ML-ELW_CTR", 0, 3.2, false)); Run(12);   // a 9 s pause while you look something up
+            conv.Add(Utter("You", 12, 3.3, true)); Run(25);
+            conv.Add(Utter("You", 25, 2.5, true)); Run(36);
+            conv.Add(Utter("ML-ELW_CTR", 36, 5.8, false)); Run(50);  // line still open, nobody talking
+            Assert(done.Count == 0, "line still open: one call in progress, got " + done.Count + " clips");
+
+            open = false;
+            Run(53);
+            Assert(done.Count == 0, "a moment after the line closes the call can still carry on");
+            Run(56);
+            Assert(done.Count == 1, "the call ends a few seconds after the line closes, got " + done.Count);
+            var c = done[0];
+            Assert(c.Callsigns.SequenceEqual(new[] { "ML-ELW_CTR", "You" }), "speakers " + string.Join(",", c.Callsigns));
+            Assert(Math.Abs(c.Length / 48000.0 - 41.8) < 0.05, "first word to last, pauses kept at real length: " + c.Length / 48000.0 + " s");
+
+            // Without line information (always closed) it falls back to the short gap.
+            done.Clear(); now = t0.AddMinutes(10);
+            var conv2 = new CoordConversation(done.Add, () => Array.Empty<Clip>(), () => now);
+            conv2.Add(new RawRecording { Pcm = new short[48000], Length = 48000, StartUtc = now.AddSeconds(-1), EndUtc = now, Callsigns = new List<string> { "X" } });
+            now = now.AddSeconds(5); conv2.Tick();
+            Assert(done.Count == 1, "no line information: ends after the gap");
+        }
+
+        /// <summary>
+        /// vatSys's own line state decides the call: it lasts while the hotline/coldline is Open (even
+        /// with no line audio), ringing doesn't count, and the clip names the line and who it was with.
+        /// </summary>
+        private static void ConversationFollowsVatSysLineState()
+        {
+            var done = new List<RawRecording>();
+            var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            var now = t0;
+            var lines = new List<LineInfo>();
+            var conv = new CoordConversation(done.Add, () => Array.Empty<Clip>(), () => now, () => false, () => lines);
+            RawRecording Utter(double at, double secs, bool own, string who = "You") => new RawRecording
+            {
+                Pcm = Tone(secs, 400, 0.2).Select(v => (short)(v / AudioFormat.StorageHeadroom * short.MaxValue)).ToArray(),
+                Length = (int)(48000 * secs), StartUtc = t0.AddSeconds(at), EndUtc = t0.AddSeconds(at + secs),
+                FrequencyHz = 0, Callsigns = new List<string> { who }, IsOwn = own,
+            };
+            void Run(double until) { while (now < t0.AddSeconds(until)) { now = now.AddMilliseconds(250); conv.Tick(); } }
+
+            // Ringing (Inbound) is not a call yet.
+            lines.Add(new LineInfo("ML-ELW_CTR", "Hotline", "Inbound"));
+            Run(2);
+            lines[0] = new LineInfo("ML-ELW_CTR", "Hotline", "Open");
+            conv.Add(Utter(2, 2, true)); Run(15);                  // you talk, ML-ELW_CTR stays silent, long pause
+            conv.Add(Utter(15, 2, true)); Run(30);
+            Assert(done.Count == 0, "the hotline is Open: still one call");
+            lines.Clear();                                           // hung up
+            Run(36);
+            Assert(done.Count == 1, "the call ends a few seconds after vatSys closes the line, got " + done.Count);
+            var c = done[0];
+            Assert(c.Name == "Hotline", "named after the line: " + c.Name);
+            Assert(c.Callsigns.SequenceEqual(new[] { "ML-ELW_CTR", "You" }), "lists who the line was with even though they never spoke: " + string.Join(",", c.Callsigns));
+            Assert(c.IsOwn, "only you spoke: still yours (the replay key skips it)");
+
+            // The next call on another line doesn't inherit the old one.
+            lines.Add(new LineInfo("BN-ISA_CTR", "Coldline", "Open"));
+            conv.Add(Utter(40, 1, false, "BN-ISA_CTR")); Run(42);
+            lines.Clear(); Run(48);
+            Assert(done.Count == 2 && done[1].Name == "Coldline" && done[1].Callsigns.SequenceEqual(new[] { "BN-ISA_CTR" }) && !done[1].IsOwn,
+                "second call: " + done[1].Name + " " + string.Join(",", done[1].Callsigns));
+
+            // Through the finalizer the line kind becomes what the list shows.
+            var plugin = new ReplayPlugin(new ReplaySettings());
+            using (var fin = new ClipFinalizer(plugin.CoordStore, _ => "Coord"))
+            {
+                fin.Enqueue(done[0]);
+                fin.Drain(TimeSpan.FromSeconds(5));
+                var clip = plugin.CoordStore.Snapshot().Single();
+                Assert(clip.FrequencyName == "Hotline" && AFVReplay.UI.SayAgainPage.Where(clip) == "Hotline", "list shows Hotline, got " + AFVReplay.UI.SayAgainPage.Where(clip));
+            }
+        }
+
+        /// <summary>
+        /// Seen live: a coldline call with SY_APP while 128.300 was busy came out as "You" only. SY_APP's
+        /// quiet raw-mic speech was taken for frequency loopback. Both sides must be in the clip.
+        /// </summary>
+        private static void QuietLineSpeechOnBusyFrequencyKept()
+        {
+            var done = new List<RawRecording>();
+            var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            var now = t0;
+            // Busy frequency: back-to-back calls covering the whole line call, at a normal level.
+            var freq = new List<Clip> { FreqClip("EVA230", t0.AddSeconds(-1), 4.2), FreqClip("SY_APP", t0.AddSeconds(3.3), 4.0, level: 0.15), FreqClip("JST428", t0.AddSeconds(7.4), 9) };
+            var lines = new List<LineInfo> { new LineInfo(null, "Coldline", "Open") }; // vatSys gave no callsign
+            var conv = new CoordConversation(done.Add, () => freq, () => now, () => false, () => lines);
+            RawRecording Utter(string who, double at, double secs, double amp, bool own) => new RawRecording
+            {
+                Pcm = Tone(secs, own ? 500 : 300, amp).Select(v => (short)(v / AudioFormat.StorageHeadroom * short.MaxValue)).ToArray(),
+                Length = (int)(48000 * secs), StartUtc = t0.AddSeconds(at), EndUtc = t0.AddSeconds(at + secs),
+                FrequencyHz = 0, Callsigns = new List<string> { who }, IsOwn = own,
+            };
+            void Run(double until) { while (now < t0.AddSeconds(until)) { now = now.AddMilliseconds(250); conv.Tick(); } }
+            Run(3);
+            conv.Add(Utter("SY_APP", 0.5, 2.5, 0.012, false)); // quiet raw mic, during EVA230's call
+            Run(10.1);
+            conv.Add(Utter("You", 8, 2.1, 0.12, true));
+            lines.Clear();
+            Run(20);
+            Assert(done.Count == 1, "one call, got " + done.Count);
+            var c = done[0];
+            Assert(c.Callsigns.SequenceEqual(new[] { "SY_APP", "You" }), "both sides kept: " + string.Join(",", c.Callsigns));
+            Assert(conv.Counts.dropped == 0, "nothing dropped as loopback");
+            double Seg(double a, double b2)
+            {
+                double sum = 0; int n0 = (int)(a * 48000), n1 = (int)(b2 * 48000);
+                for (int i = n0; i < n1; i++) { double v = c.Pcm[i] / 32768.0 * AudioFormat.StorageHeadroom; sum += v * v; }
+                return Math.Sqrt(sum / (n1 - n0));
+            }
+            Assert(Seg(0.2, 2.2) > 0.05, "SY_APP audible in the replay (boosted), level " + Seg(0.2, 2.2));
         }
 
         /// <summary>Both sides of a line call end up in one clip, mixed as you heard them.</summary>

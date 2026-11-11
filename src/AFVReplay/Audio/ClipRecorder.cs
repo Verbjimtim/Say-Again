@@ -17,6 +17,9 @@ namespace AFVReplay.Audio
 
         /// <summary>Your own voice (PTT on frequency, or your side of a line).</summary>
         public bool IsOwn;
+
+        /// <summary>Overrides the frequency name (coord calls: "Hotline" or "Coldline").</summary>
+        public string Name;
     }
 
     /// <summary>

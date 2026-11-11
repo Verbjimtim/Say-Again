@@ -95,11 +95,12 @@ namespace AFVReplay.Audio
 
             var frames = OpusCodec.Encode(rec.Pcm, rec.Length);
             string name;
-            try { name = frequencyName(rec.FrequencyHz); }
+            try { name = rec.Name ?? frequencyName(rec.FrequencyHz); }
             catch { name = FormatFrequency(rec.FrequencyHz); }
 
             var clip = new Clip(store.NextId(), rec.StartUtc, rec.EndUtc, rec.FrequencyHz, name,
                                 rec.Callsigns.AsReadOnly(), rec.Blocked, frames, rec.Length, rec.IsOwn);
+            clip.SpeechLevel = AudioLevel.Speech(rec.Pcm, rec.Length);
             rmsById[clip.Id] = rms;
             store.Add(clip);
             foreach (var id in rmsById.Keys.ToList())

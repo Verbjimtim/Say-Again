@@ -54,7 +54,8 @@ namespace AFVReplay
                 var lines = VatSysBridge.GetActiveLines();
                 string lineText = lines.Count == 0 ? "no lines open"
                     : string.Join(", ", lines.Select(l => $"{l.Callsign ?? "?"} {l.Type.ToLowerInvariant()} {l.State.ToLowerInvariant()}"));
-                return $"Coord: {remote} heard, {own} you" + (dropped > 0 ? $", {dropped} dup" : "") + "; " + lineText;
+                int silent = coordConversation.SilentCalls;
+                return $"Coord: {remote} heard, {own} you" + (dropped > 0 ? $", {dropped} dup" : "") + (silent > 0 ? $", {silent} silent" : "") + "; " + lineText;
             }
         }
 

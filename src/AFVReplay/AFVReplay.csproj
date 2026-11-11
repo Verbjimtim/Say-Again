@@ -6,7 +6,7 @@
     <AssemblyName>AFVReplay</AssemblyName>
     <RootNamespace>AFVReplay</RootNamespace>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <Product>Say Again</Product>
     <Description>vatSys plugin: replay recent AFV frequency calls and hotline/coldline coord from memory.</Description>
     <Authors>Verbjimtim</Authors>

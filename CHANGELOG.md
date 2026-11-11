@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.5
+
+- Silent line calls are logged: a hotline/coldline that opened with nobody speaking gets its own row (who it was with, Hotline/Coldline, "silent" as its length). There's nothing to play, so the coord key and up/down skip it. Unanswered ringing isn't logged.
+- Line calls list who the call was with (the controller on the line, even if they never spoke), not "You". "You" appears only when nobody else is known.
+
 ## v0.1.4
 
 - Fixed coord recording only your side of a line call after vatSys's coord connection was rebuilt (e.g. by the MumbleReconnect plugin): the plugin stayed on the old connection and heard no other controllers, and coord replays had nowhere to play. It now follows the connection when it changes.

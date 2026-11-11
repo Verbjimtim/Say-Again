@@ -63,6 +63,7 @@ namespace AFVReplay.Tests
             Run(nameof(ConversationLastsWhileLineOpen), ConversationLastsWhileLineOpen);
             Run(nameof(ConversationFollowsVatSysLineState), ConversationFollowsVatSysLineState);
             Run(nameof(QuietLineSpeechOnBusyFrequencyKept), QuietLineSpeechOnBusyFrequencyKept);
+            Run(nameof(SilentLineCallsLogged), SilentLineCallsLogged);
             Run(nameof(EndToEnd_RealVatSysMicInputs), EndToEnd_RealVatSysMicInputs);
 
             Console.WriteLine();
@@ -1134,7 +1135,7 @@ namespace AFVReplay.Tests
             Run(56);
             Assert(done.Count == 1, "the call ends a few seconds after the line closes, got " + done.Count);
             var c = done[0];
-            Assert(c.Callsigns.SequenceEqual(new[] { "ML-ELW_CTR", "You" }), "speakers " + string.Join(",", c.Callsigns));
+            Assert(c.Callsigns.SequenceEqual(new[] { "ML-ELW_CTR" }), "who the call was with " + string.Join(",", c.Callsigns));
             Assert(Math.Abs(c.Length / 48000.0 - 41.8) < 0.05, "first word to last, pauses kept at real length: " + c.Length / 48000.0 + " s");
 
             // Without line information (always closed) it falls back to the short gap.
@@ -1176,7 +1177,7 @@ namespace AFVReplay.Tests
             Assert(done.Count == 1, "the call ends a few seconds after vatSys closes the line, got " + done.Count);
             var c = done[0];
             Assert(c.Name == "Hotline", "named after the line: " + c.Name);
-            Assert(c.Callsigns.SequenceEqual(new[] { "ML-ELW_CTR", "You" }), "lists who the line was with even though they never spoke: " + string.Join(",", c.Callsigns));
+            Assert(c.Callsigns.SequenceEqual(new[] { "ML-ELW_CTR" }), "lists who the line was with even though they never spoke: " + string.Join(",", c.Callsigns));
             Assert(c.IsOwn, "only you spoke: still yours (the replay key skips it)");
 
             // The next call on another line doesn't inherit the old one.
@@ -1225,7 +1226,7 @@ namespace AFVReplay.Tests
             Run(20);
             Assert(done.Count == 1, "one call, got " + done.Count);
             var c = done[0];
-            Assert(c.Callsigns.SequenceEqual(new[] { "SY_APP", "You" }), "both sides kept: " + string.Join(",", c.Callsigns));
+            Assert(c.Callsigns.SequenceEqual(new[] { "SY_APP" }) && !c.IsOwn, "SY_APP's side kept: " + string.Join(",", c.Callsigns));
             Assert(conv.Counts.dropped == 0, "nothing dropped as loopback");
             double Seg(double a, double b2)
             {
@@ -1234,6 +1235,58 @@ namespace AFVReplay.Tests
                 return Math.Sqrt(sum / (n1 - n0));
             }
             Assert(Seg(0.2, 2.2) > 0.05, "SY_APP audible in the replay (boosted), level " + Seg(0.2, 2.2));
+        }
+
+        /// <summary>
+        /// A line call nobody speaks on is still logged: who it was with, which line, when, and no audio.
+        /// It's listed as "silent" and skipped by the replay key and by up/down.
+        /// </summary>
+        private static void SilentLineCallsLogged()
+        {
+            var done = new List<RawRecording>();
+            var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            var now = t0;
+            var lines = new List<LineInfo>();
+            var conv = new CoordConversation(done.Add, () => Array.Empty<Clip>(), () => now, () => false, () => lines);
+            void Run(double until) { while (now < t0.AddSeconds(until)) { now = now.AddMilliseconds(250); conv.Tick(); } }
+
+            Run(1);
+            lines.Add(new LineInfo("ML-ELW_CTR", "Hotline", "Inbound")); Run(3);   // ringing, not answered yet
+            lines[0] = new LineInfo("ML-ELW_CTR", "Hotline", "Open"); Run(15);       // open 12 s, nobody talks
+            lines.Clear(); Run(25);
+            Assert(done.Count == 1, "one silent call logged, got " + done.Count);
+            var r = done[0];
+            Assert(r.IsSilent && r.Name == "Hotline" && r.Callsigns.SequenceEqual(new[] { "ML-ELW_CTR" }), "silent hotline with ML-ELW_CTR: " + r.Name + " " + string.Join(",", r.Callsigns));
+            double open = (r.EndUtc - r.StartUtc).TotalSeconds;
+            Assert(Math.Abs(open - 12) < 0.6, "covers the time the line was open, got " + open + " s");
+            Assert(conv.SilentCalls == 1, "counted");
+
+            // Ringing that's never answered is not a call.
+            lines.Add(new LineInfo("BN-ISA_CTR", "Coldline", "Outbound")); Run(30);
+            lines.Clear(); Run(40);
+            Assert(done.Count == 1, "unanswered ringing logs nothing");
+
+            // Through the finalizer and into the page's list and playback.
+            var plugin = new ReplayPlugin(new ReplaySettings());
+            using (var fin = new ClipFinalizer(plugin.CoordStore, _ => "Coord"))
+            {
+                plugin.CoordStore.Add(CoordClip(plugin, "BN-ISA_CTR", 2)); // an older call with audio
+                fin.Enqueue(new RawRecording { Pcm = Array.Empty<short>(), Length = 0, StartUtc = DateTime.UtcNow.AddSeconds(-12), EndUtc = DateTime.UtcNow,
+                                               Callsigns = new List<string> { "ML-ELW_CTR" }, Name = "Hotline", IsSilent = true });
+                fin.Drain(TimeSpan.FromSeconds(5));
+                var clips = plugin.CoordStore.Snapshot();
+                var silentClip = clips.Single(c => c.IsSilent);
+                Assert(silentClip.CallsignText == "ML-ELW_CTR" && AFVReplay.UI.SayAgainPage.Where(silentClip) == "Hotline" && !silentClip.IsPlayable,
+                       "silent clip listed as Hotline / ML-ELW_CTR");
+                Assert(plugin.CoordController.Press()?.CallsignText == "BN-ISA_CTR", "the coord key skips the silent call and plays the last one with audio");
+                plugin.StopAll();
+                var list = new SayAgainPlaylist(plugin);
+                list.Play(silentClip);
+                Assert(!plugin.CoordPlayer.IsPlaying, "nothing to play for a silent call");
+                list.Older(silentClip);
+                Assert(list.Current?.CallsignText == "BN-ISA_CTR" && plugin.CoordPlayer.IsPlaying, "Previous steps over silent calls, got " + list.Current?.CallsignText);
+                plugin.StopAll();
+            }
         }
 
         /// <summary>Both sides of a line call end up in one clip, mixed as you heard them.</summary>
@@ -1263,7 +1316,7 @@ namespace AFVReplay.Tests
             Assert(done.Count == 1, "conversation should close after the gap, got " + done.Count);
 
             var c = done[0];
-            Assert(c.Callsigns.SequenceEqual(new[] { "ML-BIK_CTR", "You" }) && !c.IsOwn, "speakers " + string.Join(",", c.Callsigns));
+            Assert(c.Callsigns.SequenceEqual(new[] { "ML-BIK_CTR" }) && !c.IsOwn, "who the call was with (not You) " + string.Join(",", c.Callsigns));
             double secs = c.Length / 48000.0;
             Assert(Math.Abs(secs - 5.3) < 0.05, "conversation spans first word to last, got " + secs);
             double Seg(double a, double b)

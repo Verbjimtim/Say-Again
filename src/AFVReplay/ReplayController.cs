@@ -22,7 +22,7 @@ namespace AFVReplay
         }
 
         /// <summary>The call the key would play now: the newest that isn't only you, or null.</summary>
-        public Clip Latest() => store.Snapshot().FirstOrDefault(c => !c.IsOwn && !c.IsWiped); // newest first
+        public Clip Latest() => store.Snapshot().FirstOrDefault(c => !c.IsOwn && c.IsPlayable); // newest first; silent line calls have nothing to play
 
         /// <summary>Plays (or restarts) the most recent call. Returns it, or null if there is none.</summary>
         public Clip Press()

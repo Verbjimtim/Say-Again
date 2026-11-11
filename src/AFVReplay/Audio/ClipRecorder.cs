@@ -20,6 +20,9 @@ namespace AFVReplay.Audio
 
         /// <summary>Overrides the frequency name (coord calls: "Hotline" or "Coldline").</summary>
         public string Name;
+
+        /// <summary>A line call where nobody spoke: logged (who, when, how long) with no audio.</summary>
+        public bool IsSilent;
     }
 
     /// <summary>

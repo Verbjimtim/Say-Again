@@ -3,8 +3,9 @@ namespace AFVReplay.Audio
     /// <summary>One VSCS hotline/coldline as vatSys reports it: the other controller, the kind of line and its state.</summary>
     internal sealed class LineInfo
     {
-        public LineInfo(string callsign, string type, string state)
+        public LineInfo(string callsign, string type, string state, bool callsignFromAtc = true)
         {
+            CallsignFromAtc = callsignFromAtc;
             Callsign = callsign;
             Type = type;
             State = state;
@@ -20,5 +21,8 @@ namespace AFVReplay.Audio
         public string State { get; }
 
         public bool IsOpen => State == "Open";
+
+        /// <summary>The callsign is the connected controller's; false when it is only the line's name (no controller attached).</summary>
+        public bool CallsignFromAtc { get; }
     }
 }

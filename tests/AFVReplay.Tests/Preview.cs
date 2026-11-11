@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -61,11 +62,13 @@ namespace AFVReplay.Tests
             Clip C(string[] who, double ago, string line = "Hotline") => new Clip(plugin.CoordStore.NextId(), now.AddSeconds(-ago - 3), now.AddSeconds(-ago), 0, line,
                 who, false, OpusCodec.Encode(pcm, pcm.Length), pcm.Length);
             plugin.CoordStore.Add(C(new[] { "GIG_GND" }, 20));
-            plugin.CoordStore.Add(C(new[] { "ML-BIK_CTR", "You" }, 70, "Coldline"));
+            plugin.CoordStore.Add(new Clip(plugin.CoordStore.NextId(), now.AddSeconds(-50), now.AddSeconds(-38), 0, "Hotline",
+                new[] { "ML-ELW_CTR" }, false, new List<byte[]>(), 0, isSilent: true)); // a call nobody spoke on
+            plugin.CoordStore.Add(C(new[] { "ML-BIK_CTR" }, 70, "Coldline"));
             plugin.Store.Add(F("QFA123", 75));
             plugin.Store.Add(F("GIG_TWR", 130, own: true));
             plugin.Store.Add(F("QFA123", 140));
-            plugin.CoordStore.Add(C(new[] { "GIG_GND", "You" }, 200, "Coord"));
+            plugin.CoordStore.Add(C(new[] { "GIG_GND" }, 200, "Coord"));
             plugin.Store.Add(F("VOZ456", 250));
 
             var vscs = (Form)Activator.CreateInstance(asm.GetType("vatsys.VSCSWindow"), true);

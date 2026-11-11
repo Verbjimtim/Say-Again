@@ -122,9 +122,10 @@ namespace AFVReplay.VatSys
                     if (l.State == vatsys.VSCSLineStates.Closed || l.State == vatsys.VSCSLineStates.None) continue;
                     string callsign = null;
                     try { callsign = l.ATC?.Callsign; } catch { }
-                    if (string.IsNullOrWhiteSpace(callsign)) { try { callsign = l.Name; } catch { } } // e.g. a coldline with no ATC attached
+                    bool fromAtc = !string.IsNullOrWhiteSpace(callsign);
+                    if (!fromAtc) { try { callsign = l.Name; } catch { } } // e.g. a coldline with no ATC attached
                     if (string.IsNullOrWhiteSpace(callsign)) callsign = null;
-                    result.Add(new AFVReplay.Audio.LineInfo(callsign, l.Type.ToString(), l.State.ToString()));
+                    result.Add(new AFVReplay.Audio.LineInfo(callsign, l.Type.ToString(), l.State.ToString(), fromAtc));
                 }
                 return lastLines = result;
             }

@@ -61,8 +61,9 @@ namespace AFVReplay.Audio
 
         public void Play(Clip clip)
         {
+            if (clip == null || clip.IsSilent) return;
             var decoded = clip.Decode();
-            if (decoded == null) return;
+            if (decoded == null || decoded.Length == 0) return;
             var stretched = TimeStretch.Apply(decoded, Speed);
             if (!ReferenceEquals(stretched, decoded)) Array.Clear(decoded, 0, decoded.Length);
             lock (sync)

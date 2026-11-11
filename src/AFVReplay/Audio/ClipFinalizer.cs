@@ -75,6 +75,15 @@ namespace AFVReplay.Audio
 
         internal void Process(RawRecording rec)
         {
+            if (rec.IsSilent)
+            {
+                // A line call nobody spoke on: a log entry, no audio.
+                var silent = new Clip(store.NextId(), rec.StartUtc, rec.EndUtc, rec.FrequencyHz, rec.Name ?? frequencyName(rec.FrequencyHz),
+                                      rec.Callsigns.AsReadOnly(), false, new List<byte[]>(), 0, rec.IsOwn, isSilent: true);
+                store.Add(silent);
+                ClipAdded?.Invoke(this, silent);
+                return;
+            }
             double rms = Rms(rec.Pcm, rec.Length);
             if (rms < SilenceRms) return;
 

@@ -50,7 +50,7 @@ namespace AFVReplay
                 return;
             }
             var items = Items();
-            Play(selected ?? Current ?? items.FirstOrDefault());
+            Play(selected ?? Current ?? items.FirstOrDefault(c => c.IsPlayable));
         }
 
         /// <summary>One call older (down the table). From nothing, the newest call.</summary>
@@ -65,15 +65,17 @@ namespace AFVReplay
             if (items.Count == 0) return;
             var from = Current ?? selected;
             int at = from == null ? -1 : items.IndexOf(from);
-            int next = at < 0 ? 0 : at + direction;
-            if (next < 0) next = 0;
-            if (next >= items.Count) next = items.Count - 1;
+            // Silent line calls are listed but have nothing to play: step over them.
+            if (at < 0) { at = -1; direction = +1; }
+            int next = at + direction;
+            while (next >= 0 && next < items.Count && !items[next].IsPlayable) next += direction;
+            if (next < 0 || next >= items.Count) { if (at >= 0) Play(items[at]); return; } // at the end: replay the current one
             Play(items[next]);
         }
 
         public void Play(Clip clip)
         {
-            if (clip == null || clip.IsWiped) return;
+            if (clip == null || !clip.IsPlayable) return;
             current = clip;
             (clip.IsCoord ? plugin.CoordController : plugin.Controller).Play(clip);
         }

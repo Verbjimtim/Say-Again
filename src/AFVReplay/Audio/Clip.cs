@@ -11,8 +11,10 @@ namespace AFVReplay.Audio
         private List<byte[]> frames;
 
         public Clip(long id, DateTime startUtc, DateTime endUtc, uint frequencyHz, string frequencyName,
-                    IReadOnlyList<string> callsigns, bool blocked, List<byte[]> frames, int sampleCount, bool isOwn = false)
+                    IReadOnlyList<string> callsigns, bool blocked, List<byte[]> frames, int sampleCount, bool isOwn = false,
+                    bool isSilent = false)
         {
+            IsSilent = isSilent;
             IsOwn = isOwn;
             Id = id;
             StartUtc = startUtc;
@@ -45,10 +47,17 @@ namespace AFVReplay.Audio
         /// <summary>Speech level (real RMS, see <see cref="AudioLevel.Speech"/>); 0 when unknown.</summary>
         public double SpeechLevel { get; internal set; }
 
+        /// <summary>A line call where nobody spoke: listed (who, when) but has no audio to play.</summary>
+        public bool IsSilent { get; }
+
+        /// <summary>Something to play: not silent and not yet wiped.</summary>
+        public bool IsPlayable => !IsSilent && !IsWiped;
+
         /// <summary>A hotline/coldline call rather than a frequency transmission.</summary>
         public bool IsCoord => FrequencyHz == 0;
 
-        public string CallsignText => IsOwn ? "You" : Callsigns.Count == 0 ? "?" : string.Join(" + ", Callsigns);
+        // Line calls list who the line was with (see CoordConversation); "You" is for your frequency transmissions.
+        public string CallsignText => IsOwn && !IsCoord ? "You" : Callsigns.Count == 0 ? "?" : string.Join(" + ", Callsigns);
 
         /// <summary>Decodes to float PCM for playback. Returns null once wiped.</summary>
         public float[] Decode()

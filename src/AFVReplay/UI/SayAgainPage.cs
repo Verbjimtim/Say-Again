@@ -385,7 +385,7 @@ namespace AFVReplay.UI
         }
 
         private ListViewItem MakeItem(Clip c) =>
-            new ListViewItem(new[] { "", Where(c), c.CallsignText + (c.Blocked ? " (blocked)" : ""), $"{c.Duration.TotalSeconds:0.0}s" }) { Tag = c };
+            new ListViewItem(new[] { "", Where(c), c.CallsignText + (c.Blocked ? " (blocked)" : ""), c.IsSilent ? "silent" : $"{c.Duration.TotalSeconds:0.0}s" }) { Tag = c };
 
         /// <summary>
         /// Brings the list in line with the calls kept, in place: new calls are inserted at the top,

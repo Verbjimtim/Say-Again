@@ -36,10 +36,15 @@ namespace AFVReplay.Audio
 
         // Lines open during the current call (or just before it): who it was with, and what kind.
         private readonly List<LineInfo> callLines = new List<LineInfo>();
+        private DateTime callOpenedUtc;
+        private bool callHadSpeech; // part of this call was already logged (a long call split while open)
         private readonly List<RawRecording> parts = new List<RawRecording>();
         private readonly List<string> speakers = new List<string>();
 
-        private int heardRemote, heardOwn, dropped;
+        private int heardRemote, heardOwn, dropped, silent;
+
+        /// <summary>Line calls logged with nobody speaking.</summary>
+        public int SilentCalls { get { lock (sync) return silent; } }
 
         public CoordConversation(Action<RawRecording> onComplete, Func<IReadOnlyList<Clip>> freqClips, Func<DateTime> clock = null,
                                  Func<bool> lineOpen = null, Func<IReadOnlyList<LineInfo>> lines = null)
@@ -88,6 +93,7 @@ namespace AFVReplay.Audio
                 IReadOnlyList<LineInfo> current;
                 try { current = lines() ?? Array.Empty<LineInfo>(); } catch { current = Array.Empty<LineInfo>(); }
                 var open = current.Where(l => l.IsOpen).ToList();
+                if (open.Count > 0 && callLines.Count == 0) callOpenedUtc = now;
                 foreach (var l in open)
                 {
                     if (!callLines.Any(c => string.Equals(c.Callsign, l.Callsign, StringComparison.OrdinalIgnoreCase) && c.Type == l.Type))
@@ -95,8 +101,13 @@ namespace AFVReplay.Audio
                 }
                 if (open.Count > 0 || lineOpen()) lastOpenUtc = now;
                 if (parts.Count > 0 && now - LastActivity() > Gap) flushed = Flush();
-                // A line that opened and closed with nobody talking leaves nothing for the next call.
-                else if (parts.Count == 0 && now - lastOpenUtc > Gap) callLines.Clear();
+                // A line that opened and closed with nobody talking: logged as a silent call.
+                else if (parts.Count == 0 && callLines.Count > 0 && now - lastOpenUtc > Gap)
+                {
+                    if (!callHadSpeech) flushed = SilentCall(callLines.ToList());
+                    callLines.Clear();
+                    callHadSpeech = false;
+                }
             }
             if (flushed != null) onComplete(flushed);
         }
@@ -115,6 +126,7 @@ namespace AFVReplay.Audio
                 foreach (var p in parts) Array.Clear(p.Pcm, 0, p.Pcm.Length);
                 parts.Clear();
                 callLines.Clear();
+                callHadSpeech = false;
             }
         }
 
@@ -135,8 +147,10 @@ namespace AFVReplay.Audio
             parts.Clear();
             var withLines = callLines.ToList();
             // Lines still open carry on into the next part of a split call; closed ones are done with.
-            if (clock() - lastOpenUtc > TimeSpan.FromSeconds(1)) callLines.Clear();
-            if (kept.Count == 0) return null;
+            if (clock() - lastOpenUtc > TimeSpan.FromSeconds(1)) { callLines.Clear(); callHadSpeech = false; }
+            else { callOpenedUtc = clock(); callHadSpeech |= kept.Count > 0; }
+            // Everything said was frequency bleed: still a line call, just a silent one.
+            if (kept.Count == 0) return withLines.Count > 0 ? SilentCall(withLines) : null;
 
             var start = kept.Min(p => p.StartUtc);
             var end = kept.Max(p => p.EndUtc);
@@ -155,15 +169,8 @@ namespace AFVReplay.Audio
                 }
             }
 
-            // Other controllers first (in the order they spoke), then you.
             var speakers = kept.Where(p => !p.IsOwn).Select(p => p.Callsigns.FirstOrDefault()).Where(n => n != null).Distinct().ToList();
-            // The other end of the line, even if they never spoke.
-            var names = speakers.ToList();
-            foreach (var l in withLines)
-            {
-                if (!string.IsNullOrEmpty(l.Callsign) && !names.Any(n => string.Equals(n, l.Callsign, StringComparison.OrdinalIgnoreCase)))
-                    names.Add(l.Callsign);
-            }
+            var names = WhoWith(withLines, speakers);
             bool you = kept.Any(p => p.IsOwn);
             foreach (var p in kept) Array.Clear(p.Pcm, 0, p.Pcm.Length);
 
@@ -174,9 +181,46 @@ namespace AFVReplay.Audio
                 StartUtc = start,
                 EndUtc = end,
                 FrequencyHz = 0,
-                Callsigns = names.Concat(you ? new[] { CoordYou } : Array.Empty<string>()).ToList(),
+                // Who the call was with; "You" only when nobody else is known at all.
+                Callsigns = names.Count > 0 ? names : you ? new List<string> { CoordYou } : new List<string>(),
                 IsOwn = speakers.Count == 0, // only you spoke: the replay key skips it
                 Name = withLines.Select(l => l.Type).FirstOrDefault(),
+            };
+        }
+
+        /// <summary>
+        /// Who a line call was with: the controllers on the lines vatSys had open (even if they never
+        /// spoke), then anyone else heard. A line's own name stands in only when nothing better is known.
+        /// </summary>
+        private static List<string> WhoWith(List<LineInfo> withLines, List<string> speakers)
+        {
+            var names = new List<string>();
+            void Add(string n)
+            {
+                if (!string.IsNullOrWhiteSpace(n) && !names.Any(x => string.Equals(x, n, StringComparison.OrdinalIgnoreCase))) names.Add(n);
+            }
+            foreach (var l in withLines) if (l.CallsignFromAtc) Add(l.Callsign);
+            foreach (var s in speakers) Add(s);
+            if (names.Count == 0) foreach (var l in withLines) Add(l.Callsign);
+            return names;
+        }
+
+        /// <summary>A line call nobody spoke on: who, which line, and when it was open. No audio.</summary>
+        private RawRecording SilentCall(List<LineInfo> withLines)
+        {
+            silent++;
+            var end = lastOpenUtc;
+            var start = callOpenedUtc == default(DateTime) || callOpenedUtc > end ? end : callOpenedUtc;
+            return new RawRecording
+            {
+                Pcm = Array.Empty<short>(),
+                Length = 0,
+                StartUtc = start,
+                EndUtc = end,
+                FrequencyHz = 0,
+                Callsigns = WhoWith(withLines, new List<string>()),
+                Name = withLines.Select(l => l.Type).FirstOrDefault(),
+                IsSilent = true,
             };
         }
 

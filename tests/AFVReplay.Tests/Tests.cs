@@ -65,6 +65,7 @@ namespace AFVReplay.Tests
             Run(nameof(QuietLineSpeechOnBusyFrequencyKept), QuietLineSpeechOnBusyFrequencyKept);
             Run(nameof(SilentLineCallsLogged), SilentLineCallsLogged);
             Run(nameof(EndToEnd_RealVatSysMicInputs), EndToEnd_RealVatSysMicInputs);
+            Run(nameof(MediaPausesWhileRadioBusy), MediaPausesWhileRadioBusy);
 
             Console.WriteLine();
             Console.WriteLine($"{passes} passed, {failures} failed");
@@ -313,8 +314,10 @@ namespace AFVReplay.Tests
                 Assert(sources.Contains(rig.Player), "player should be in the mix");
 
                 rig.Pump(300);
+                Assert(!rig.Hook.IsReceiving, "not receiving before the call");
                 var heard = rig.Transmit("QFA123", 1.5, 500, (1, 125_600_000, 1f));
                 rig.Pump(1000);
+                Assert(!rig.Hook.IsReceiving, "not receiving after the call");
                 rig.Finalizer.Drain(TimeSpan.FromSeconds(5));
 
                 // Same packets through an untouched AFV pipeline: what the controller hears must be identical.
@@ -1108,6 +1111,56 @@ namespace AFVReplay.Tests
         /// Seen live: one call with ML-ELW_CTR came out as four clips, because it had pauses longer
         /// than the old 4 s gap. A call now lasts as long as the line is open, pauses included.
         /// </summary>
+        private sealed class FakeMedia : IMediaControl
+        {
+            public readonly List<string> Calls = new List<string>();
+            public void PausePlaying() => Calls.Add("pause");
+            public void ResumePaused() => Calls.Add("resume");
+        }
+
+        /// <summary>
+        /// Pause Media: pauses once when the radio goes busy, stays paused through short gaps
+        /// (call then readback), resumes 2 s after it goes quiet, does nothing while switched off,
+        /// resumes if switched off mid-call, and resumes on shutdown.
+        /// </summary>
+        private static void MediaPausesWhileRadioBusy()
+        {
+            var media = new FakeMedia();
+            var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            bool on = false, busy = false;
+            var p = new MediaPauser(media, () => on, () => busy, () => now);
+            void Step(double seconds) { for (int i = 0; i < seconds * 10; i++) { now = now.AddMilliseconds(100); p.Tick(); } }
+
+            busy = true; Step(1);
+            Assert(media.Calls.Count == 0, "off by default: nothing paused");
+            busy = false; Step(1);
+
+            on = true; Step(1);
+            Assert(media.Calls.Count == 0, "quiet radio: nothing paused");
+            busy = true; Step(3);
+            Assert(string.Join(",", media.Calls) == "pause" && p.Paused, "paused once while busy: " + string.Join(",", media.Calls));
+            busy = false; Step(1.5);
+            busy = true; Step(1); // readback within the resume delay
+            busy = false; Step(1.5);
+            Assert(string.Join(",", media.Calls) == "pause", "still paused through short gaps: " + string.Join(",", media.Calls));
+            Step(1);
+            Assert(string.Join(",", media.Calls) == "pause,resume" && !p.Paused, "resumed 2 s after quiet: " + string.Join(",", media.Calls));
+
+            busy = true; Step(1);
+            on = false; Step(0.2);
+            Assert(string.Join(",", media.Calls) == "pause,resume,pause,resume", "switching off mid-call resumes: " + string.Join(",", media.Calls));
+
+            on = true; Step(0.2);
+            busy = false;
+            p.Dispose();
+            Assert(string.Join(",", media.Calls) == "pause,resume,pause,resume,pause,resume", "shutdown resumes: " + string.Join(",", media.Calls));
+            p.Dispose();
+            Assert(media.Calls.Count == 6, "nothing more after shutdown");
+
+            var fresh = new ReplaySettings();
+            Assert(!fresh.PauseMedia, "Pause Media is off by default");
+        }
+
         private static void ConversationLastsWhileLineOpen()
         {
             var done = new List<RawRecording>();
@@ -1474,9 +1527,29 @@ namespace AFVReplay.Tests
                 page.RefreshView(); Pump();
                 var list = FindControl<System.Windows.Forms.ListView>(page);
                 int top0 = list.GetItemRect(0).Top, height = list.ClientSize.Height;
-                Console.WriteLine($"     opened: {list.Items.Count} calls, row 0 at {top0}, list {height} px high");
+                Console.WriteLine($"     opened: {list.Items.Count} calls, row 0 at {top0}, list {height} px high, origin {Origin(list)}, header {HeaderH(list)}");
                 Assert(list.Items.Count == 8, "8 calls listed, got " + list.Items.Count);
                 Assert(top0 > 0 && top0 < 40, "first call shows just under the header, row 0 at " + top0);
+
+                // Seen live (twice): a short list (all calls fit) ends up with its origin above the top
+                // (Windows' top row -1, row 0 one row down) and draws no rows until clicked. Scrolling
+                // can't fix it then (nothing to scroll), so a refresh must reset it.
+                SendMessage(list.Handle, 0x1014 /* LVM_SCROLL */, IntPtr.Zero, (IntPtr)(-list.GetItemRect(0).Height));
+                Console.WriteLine($"     short list pushed above its top: row 0 at {list.GetItemRect(0).Top} (should be {top0})");
+                page.RefreshView(); Pump();
+                Assert(list.GetItemRect(0).Top == top0, "refresh puts a short list back at its top, row 0 at " + list.GetItemRect(0).Top);
+                Assert(list.Items.Count == 8, "calls still listed after the reset");
+
+                // The rebuild used when scrolling can't fix it: same calls, columns, selection and drawing.
+                list.Items[2].Selected = true;
+                var picked = list.Items[2].Tag;
+                int[] widths = list.Columns.Cast<System.Windows.Forms.ColumnHeader>().Select(h => h.Width).ToArray();
+                page.ResetListWindow(); Pump();
+                Assert(page.ListResets == 1 && list.IsHandleCreated && list.OwnerDraw, $"list rebuilt once, still owner-drawn (resets {page.ListResets}, handle {list.IsHandleCreated}, ownerdraw {list.OwnerDraw})");
+                Assert(list.Items.Count == 8 && list.SelectedItems.Count == 1 && list.SelectedItems[0].Tag == picked, "calls and selection kept");
+                Assert(list.GetItemRect(0).Top == top0, "rebuilt list starts at the top, row 0 at " + list.GetItemRect(0).Top);
+                Assert(list.Columns.Cast<System.Windows.Forms.ColumnHeader>().Select(h => h.Width).SequenceEqual(widths), "column widths kept");
+                list.SelectedItems.Clear();
 
                 // Selecting a pilot highlights their calls and hides nothing.
                 AFVReplay.UI.SayAgainPage.PilotOverride = () => ("acft3", "Test Pilot");
@@ -1496,6 +1569,13 @@ namespace AFVReplay.Tests
                 form.Close();
             }
         }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref System.Drawing.Point lParam);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out System.Drawing.Rectangle r);
+        private static string Origin(System.Windows.Forms.ListView l) { var p = new System.Drawing.Point(); var ok = SendMessage(l.Handle, 0x1029, IntPtr.Zero, ref p); return $"{p.Y} (ok {ok})"; }
+        private static int HeaderH(System.Windows.Forms.ListView l) { var h = SendMessage(l.Handle, 0x101F, IntPtr.Zero, IntPtr.Zero); GetClientRect(h, out var r); return r.Height; }
 
         private static T FindControl<T>(System.Windows.Forms.Control c) where T : System.Windows.Forms.Control
         {

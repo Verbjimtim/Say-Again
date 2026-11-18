@@ -27,6 +27,9 @@ namespace AFVReplay
         /// <summary>Highlight the selected aircraft's calls in the Say Again list.</summary>
         public bool HighlightSelectedPilot { get; set; } = true;
 
+        /// <summary>Pause other apps' media (Spotify, browser, etc.) while the radio is busy. Off by default.</summary>
+        public bool PauseMedia { get; set; }
+
         /// <summary>Replay volume, 0-200 percent, on top of the vatSys output volume.</summary>
         public int VolumePercent { get; set; } = 100;
 

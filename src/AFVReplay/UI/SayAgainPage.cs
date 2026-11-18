@@ -236,26 +236,62 @@ namespace AFVReplay.UI
 
         private int MaxTopRow => Math.Max(0, list.Items.Count - VisibleRows);
 
+        /// <summary>
+        /// Rows scrolled down from the top (negative: above the top). Whole rows, because the header's
+        /// height and where row 0 starts differ by a pixel or two; a real mis-scroll is a whole row.
+        /// </summary>
+        private int RowsScrolled => (int)Math.Round(ScrollOffset / (double)RowHeight);
+
         /// <summary>The first row showing under the header.</summary>
-        private int TopRow => list.Items.Count == 0 ? 0
-            : Math.Max(0, Math.Min(list.Items.Count - 1, (int)Math.Round(ScrollOffset / (double)RowHeight)));
+        private int TopRow => list.Items.Count == 0 ? 0 : Math.Max(0, Math.Min(list.Items.Count - 1, RowsScrolled));
 
         /// <summary>Scrolls so that <paramref name="row"/> is the first row showing (clamped to what can show).</summary>
         private void ScrollToRow(int row)
         {
             if (list.Items.Count == 0 || !list.IsHandleCreated) return;
             row = Math.Max(0, Math.Min(MaxTopRow, row));
-            int dy = row * RowHeight - ScrollOffset;
-            if (dy != 0) SendMessage(list.Handle, LVM_SCROLL, IntPtr.Zero, (IntPtr)dy);
+            int rows = row - RowsScrolled;
+            if (rows != 0) SendMessage(list.Handle, LVM_SCROLL, IntPtr.Zero, (IntPtr)(rows * RowHeight));
         }
 
         /// <summary>Puts the list back in range if it has ended up scrolled above the top or past the end.</summary>
         private void KeepInRange()
         {
             if (list.Items.Count == 0 || !list.IsHandleCreated) return;
-            int offset = ScrollOffset;
-            if (offset < 0 || offset > MaxTopRow * RowHeight) ScrollToRow(TopRow);
+            int at = RowsScrolled;
+            if (at < 0 || at > MaxTopRow) ScrollToRow(TopRow);
+            // Seen live: a short list (every call fits) with its origin above the top draws no rows
+            // at all until clicked, and Windows won't scroll a list that fits, so scrolling can't undo
+            // it. Rebuild the list's window instead: a new one starts at the top.
+            if (RowsScrolled < 0) ResetListWindow();
         }
+
+        /// <summary>Recreates the list's Windows control (same calls, columns and selection), back at the top.</summary>
+        internal void ResetListWindow()
+        {
+            if (!list.IsHandleCreated) return;
+            var keep = SelectedClip;
+            try
+            {
+                typeof(Control).GetMethod("RecreateHandle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    ?.Invoke(list, null);
+            }
+            catch (Exception ex)
+            {
+                Diag.Warn("list reset failed: " + ex.GetType().Name);
+                return;
+            }
+            var item = FindItem(keep);
+            if (item != null) item.Selected = true;
+            FitColumns();
+            lastTopIndex = -1;
+            UpdateScrollBar(force: true);
+            list.Invalidate();
+            ListResets++;
+        }
+
+        /// <summary>How many times the list had to be rebuilt (diagnostics and tests).</summary>
+        internal int ListResets { get; private set; }
 
         private int RowHeight => list.Items.Count > 0 ? Math.Max(1, list.GetItemRect(0).Height) : Math.Max(1, listFont.Height + 2);
 
@@ -502,10 +538,10 @@ namespace AFVReplay.UI
         private void AddToggle(TableLayoutPanel t, string label, bool value, Action<bool> set)
         {
             var toggle = VatSysBridge.CreateToggleButton();
-            toggle.Size = new Size(90, 22);
+            toggle.Size = new Size(90, 19);
             toggle.Font = MMI.eurofont_winverysml;
             toggle.BackColor = VscsBg;
-            toggle.Margin = new Padding(2, 1, 2, 1);
+            toggle.Margin = new Padding(2, 0, 2, 0);
             toggle.Anchor = AnchorStyles.Left;
             toggle.Checked = value;
             toggle.Text = value ? "On" : "Off";
@@ -547,8 +583,9 @@ namespace AFVReplay.UI
 
             AddToggle(t, "Stop On New", s.StopOnNewCall, v => s.StopOnNewCall = v);
             AddToggle(t, "Highlight Selected Pilot", s.HighlightSelectedPilot, v => { s.HighlightSelectedPilot = v; list.Invalidate(); });
+            AddToggle(t, "Pause Media", s.PauseMedia, v => s.PauseMedia = v);
 
-            statusLabel = new TextLabel(false) { AutoSize = true, TextAlign = ContentAlignment.TopLeft, Font = MMI.eurofont_winverysml, ForeColor = NonInteractive, BackColor = WinBg, Margin = new Padding(0, 6, 0, 0) };
+            statusLabel = new TextLabel(false) { AutoSize = true, TextAlign = ContentAlignment.TopLeft, Font = MMI.eurofont_winverysml, ForeColor = NonInteractive, BackColor = WinBg, Margin = new Padding(0, 1, 0, 0) };
             int row = AddRow(t, statusLabel, null);
             t.SetColumnSpan(statusLabel, 2);
             area.Controls.Add(t);
@@ -566,7 +603,7 @@ namespace AFVReplay.UI
 
         private static TextLabel SettingLabel(string text) => new TextLabel(true)
         {
-            Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Font = MMI.eurofont_winverysml, BackColor = WinBg, Margin = new Padding(0, 2, 6, 2),
+            Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Font = MMI.eurofont_winverysml, BackColor = WinBg, Margin = new Padding(0, 0, 6, 0),
         };
 
         // vatSys's Slider places its handle as Value/Maximum (it ignores Minimum), so each runs from 0
@@ -577,7 +614,7 @@ namespace AFVReplay.UI
             {
                 Minimum = 0, Maximum = max - min, Value = Math.Max(min, Math.Min(max, value)) - min,
                 Dock = DockStyle.Fill, Height = 24, BackColor = WinBg, ForeColor = Depressed, FontColor = Interactive,
-                Font = MMI.eurofont_winverysml, CustomPaintText = true, Cursor = Cursors.NoMoveHoriz, Margin = new Padding(2, 1, 2, 1),
+                Font = MMI.eurofont_winverysml, CustomPaintText = true, Cursor = Cursors.NoMoveHoriz, Margin = new Padding(2, 0, 2, 0),
                 SmallChange = step, LargeChange = step * 5,
             };
             slider.PaintText += (o, e) =>

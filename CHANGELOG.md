@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.6
+
+- **Pause Media** (Settings, off by default): pauses Spotify, browser tabs and anything else in Windows' media controls while the radio is busy (receiving, transmitting or a hotline/coldline open), and resumes them 2 seconds after it goes quiet. Only what was playing is paused, and only that is resumed, so anything you started or stopped yourself in the meantime is left alone. Say Again replays don't count as busy.
+- Fixed the Say Again list showing no rows until clicked. Seen live: with few calls (all fitting on the page), the list's scroll origin ended up a row above its top and Windows drew nothing; it couldn't be scrolled back because there was nothing to scroll. The list now rebuilds itself when that happens. It also no longer sends Windows a tiny scroll correction every second (the header's height and the first row's position differ by a pixel or two, which it was treating as being off).
+
 ## v0.1.5
 
 - Silent line calls are logged: a hotline/coldline that opened with nobody speaking gets its own row (who it was with, Hotline/Coldline, "silent" as its length). There's nothing to play, so the coord key and up/down skip it. Unanswered ringing isn't logged.

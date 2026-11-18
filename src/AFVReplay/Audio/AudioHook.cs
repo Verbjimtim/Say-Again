@@ -39,6 +39,9 @@ namespace AFVReplay.Audio
 
         public int TapCount { get { lock (tickLock) return taps.Count; } }
 
+        /// <summary>True while any frequency you're listening to is receiving a call.</summary>
+        public bool IsReceiving { get { lock (tickLock) return taps.Values.Any(t => t.IsRecording); } }
+
         public void Start(TimeSpan interval)
         {
             timer = new Timer(_ => Tick(), null, TimeSpan.Zero, interval);

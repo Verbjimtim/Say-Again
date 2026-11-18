@@ -30,6 +30,8 @@ namespace AFVReplay
         private string coordDisabledReason;
         private OwnTxRecorder ownTx;
         private MicHook micHook;
+        private WindowsMedia media;
+        private MediaPauser mediaPauser;
         private string disabledReason;
 
         public string Name => "Say Again";
@@ -142,6 +144,7 @@ namespace AFVReplay
 
             StartCoord();
             StartMic();
+            StartMediaPause();
 
             // Privacy: nothing survives a disconnect or shutdown.
             AFV.Disconnected += (s, e) => { hook.ResetRecordings(); ownTx?.Reset(); };
@@ -205,6 +208,30 @@ namespace AFVReplay
             micHook.Start(TimeSpan.FromMilliseconds(250));
         }
 
+        /// <summary>Pause Media: other apps' media pauses while the radio is busy (see <see cref="RadioBusy"/>).</summary>
+        private void StartMediaPause()
+        {
+            try
+            {
+                media = new WindowsMedia();
+                mediaPauser = new MediaPauser(media, () => Settings.PauseMedia, RadioBusy);
+                mediaPauser.Start(TimeSpan.FromMilliseconds(100));
+            }
+            catch (Exception ex)
+            {
+                media = null;
+                mediaPauser = null;
+                Diag.Warn("Pause Media unavailable: " + ex.GetType().Name);
+            }
+        }
+
+        /// <summary>Receiving, transmitting, or a hotline/coldline open. Say Again replays don't count.</summary>
+        private bool RadioBusy() =>
+            (hook?.IsReceiving ?? false)
+            || vatsys.Audio.Transmitting
+            || (coordRecorder?.LineOpen ?? false)
+            || VatSysBridge.GetActiveLines().Any(l => l.IsOpen);
+
         /// <summary>The first frequency you're transmitting on, and your callsign.</summary>
         private static (uint hz, string callsign) DescribeTransmit()
         {
@@ -239,6 +266,7 @@ namespace AFVReplay
 
         private void Shutdown()
         {
+            try { mediaPauser?.Dispose(); media?.Flush(TimeSpan.FromSeconds(2)); } catch { } // resume anything paused
             try { poller?.Dispose(); } catch { }
             try { vscs?.Dispose(); } catch { }
             try { micHook?.Dispose(); } catch { }

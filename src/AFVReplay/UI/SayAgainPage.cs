@@ -535,7 +535,14 @@ namespace AFVReplay.UI
         }
 
         /// <summary>An On/Off row in vatSys's toggle-button style.</summary>
-        private void AddToggle(TableLayoutPanel t, string label, bool value, Action<bool> set)
+        private CheckBox AddToggle(TableLayoutPanel t, string label, bool value, Action<bool> set)
+        {
+            var toggle = Toggle(value, set);
+            AddRow(t, SettingLabel(label), toggle);
+            return toggle;
+        }
+
+        private CheckBox Toggle(bool value, Action<bool> set)
         {
             var toggle = VatSysBridge.CreateToggleButton();
             toggle.Size = new Size(90, 19);
@@ -551,7 +558,7 @@ namespace AFVReplay.UI
                 toggle.Text = toggle.Checked ? "On" : "Off";
                 plugin.ApplySettings();
             };
-            AddRow(t, SettingLabel(label), toggle);
+            return toggle;
         }
 
         private static Color Blend(Color a, Color b, double t) =>
@@ -572,32 +579,114 @@ namespace AFVReplay.UI
         {
             var s = plugin.Settings;
             var area = new InsetPanel { BackColor = WinBg, Padding = new Padding(4) };
-            var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, BackColor = WinBg, AutoScroll = false };
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            // Tabs (Replay, Media, Alerts) on top, the chosen sub-page below, the status lines at the bottom.
+            var outer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = WinBg };
+            outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            outer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            AddSetting(t, "Keep Calls", 1, 5, s.RetentionMinutes, v => v + " min", v => s.RetentionMinutes = v);
-            AddSetting(t, "Keep Coord", 1, 10, s.CoordRetentionMinutes, v => v + " min", v => s.CoordRetentionMinutes = v);
-            AddSetting(t, "Volume", 0, 200, s.VolumePercent, v => v + "%", v => s.VolumePercent = v, step: 5);
-            AddSetting(t, "Speed", 100, 200, s.SpeedPercent, v => (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture) + "x", v => s.SpeedPercent = v, step: 5);
+            var replay = SettingsPage();
+            AddSlider(replay, "Keep Calls", 1, 5, s.RetentionMinutes, v => v + " min", v => s.RetentionMinutes = v);
+            AddSlider(replay, "Keep Coord", 1, 10, s.CoordRetentionMinutes, v => v + " min", v => s.CoordRetentionMinutes = v);
+            AddSlider(replay, "Volume", 0, 200, s.VolumePercent, v => v + "%", v => s.VolumePercent = v, step: 5);
+            AddSlider(replay, "Speed", 100, 200, s.SpeedPercent, v => (v / 100.0).ToString("0.00", CultureInfo.InvariantCulture) + "x", v => s.SpeedPercent = v, step: 5);
+            AddToggle(replay, "Stop On New", s.StopOnNewCall, v => s.StopOnNewCall = v);
+            AddToggle(replay, "Highlight Selected Pilot", s.HighlightSelectedPilot, v => { s.HighlightSelectedPilot = v; list.Invalidate(); });
 
-            AddToggle(t, "Stop On New", s.StopOnNewCall, v => s.StopOnNewCall = v);
-            AddToggle(t, "Highlight Selected Pilot", s.HighlightSelectedPilot, v => { s.HighlightSelectedPilot = v; list.Invalidate(); });
-            AddToggle(t, "Pause Media", s.PauseMedia, v => s.PauseMedia = v);
+            var media = SettingsPage();
+            AddToggle(media, "Pause Media", s.PauseMedia, v => s.PauseMedia = v);
+            AddSlider(media, "Resume Media", 1, ReplaySettings.ResumeNever, s.MediaResumeSeconds,
+                v => v >= ReplaySettings.ResumeNever ? "Never" : v + " s", v => s.MediaResumeSeconds = v);
 
-            statusLabel = new TextLabel(false) { AutoSize = true, TextAlign = ContentAlignment.TopLeft, Font = MMI.eurofont_winverysml, ForeColor = NonInteractive, BackColor = WinBg, Margin = new Padding(0, 1, 0, 0) };
-            int row = AddRow(t, statusLabel, null);
-            t.SetColumnSpan(statusLabel, 2);
-            area.Controls.Add(t);
+            var alerts = SettingsPage();
+            handoffToggle = AddToggle(alerts, "Handoff Alert", s.HandoffAlert, v => s.HandoffAlert = v);
+            AddSlider(alerts, "Repeat", ReplaySettings.RepeatOff, 10, s.HandoffRepeatSeconds,
+                v => v <= ReplaySettings.RepeatOff ? "Off" : v + " s", v => s.HandoffRepeatSeconds = v);
+            plugin.SettingsChanged += SettingsChangedElsewhere;
+
+            settingsPages = new[] { replay, media, alerts };
+            var pages = new Panel { Dock = DockStyle.Fill, BackColor = WinBg, Margin = new Padding(0, 4, 0, 0) };
+            pages.Controls.Add(replay);
+            pages.Controls.Add(media);
+            pages.Controls.Add(alerts);
+
+            var tabs = new FlowLayoutPanel { AutoSize = true, BackColor = WinBg, Margin = new Padding(0), WrapContents = false };
+            settingsTabs = new[] { Tab("Replay", 0), Tab("Media", 1), Tab("Alerts", 2) };
+            tabs.Controls.AddRange(settingsTabs);
+
+            statusLabel = new TextLabel(false) { AutoSize = true, TextAlign = ContentAlignment.TopLeft, Font = MMI.eurofont_winverysml, ForeColor = NonInteractive, BackColor = WinBg, Margin = new Padding(0, 2, 0, 0) };
+            outer.Controls.Add(tabs, 0, 0);
+            outer.Controls.Add(pages, 0, 1);
+            outer.Controls.Add(statusLabel, 0, 2);
+            area.Controls.Add(outer);
+            ShowSettingsPage(0);
             return area;
         }
 
-        private static int AddRow(TableLayoutPanel t, Control left, Control right)
+        private CheckBox handoffToggle;
+
+        /// <summary>The Setup page's Handoff Alert button was used: show the same on the Alerts tab.</summary>
+        private void SettingsChangedElsewhere(object sender, EventArgs e)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (InvokeRequired) { BeginInvoke((MethodInvoker)(() => SettingsChangedElsewhere(sender, e))); return; }
+            if (handoffToggle != null && handoffToggle.Checked != plugin.Settings.HandoffAlert)
+                handoffToggle.Checked = plugin.Settings.HandoffAlert;
+        }
+
+        internal CheckBox HandoffToggle => handoffToggle;
+
+        private TableLayoutPanel[] settingsPages;
+        private CheckBox[] settingsTabs;
+        private bool switchingPage;
+
+        /// <summary>Which settings sub-page is showing: 0 Replay, 1 Media, 2 Alerts.</summary>
+        internal int SettingsPageIndex { get; private set; }
+
+        internal void ShowSettingsPage(int index)
+        {
+            SettingsPageIndex = index;
+            switchingPage = true;
+            try
+            {
+                for (int i = 0; i < settingsPages.Length; i++)
+                {
+                    settingsPages[i].Visible = i == index;
+                    settingsTabs[i].Checked = i == index; // the open page's tab shows pressed
+                }
+            }
+            finally { switchingPage = false; }
+        }
+
+        private CheckBox Tab(string text, int index)
+        {
+            var tab = (CheckBox)VatSysBridge.CreateToggleButton();
+            tab.Size = new Size(70, 19);
+            tab.Font = MMI.eurofont_winverysml;
+            tab.BackColor = VscsBg;
+            tab.Margin = new Padding(0, 0, 4, 0);
+            tab.Text = text;
+            tab.CheckedChanged += (o, e) => { if (!switchingPage) ShowSettingsPage(index); };
+            return tab;
+        }
+
+        /// <summary>A sub-page: name, control, value.</summary>
+        private static TableLayoutPanel SettingsPage()
+        {
+            var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, BackColor = WinBg, AutoScroll = false, Visible = false }; // rows packed at the top
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 52));
+            return t;
+        }
+
+        private static int AddRow(TableLayoutPanel t, Control left, Control right, Control value = null)
         {
             int row = t.RowCount++;
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             t.Controls.Add(left, 0, row);
             if (right != null) t.Controls.Add(right, 1, row);
+            if (value != null) t.Controls.Add(value, 2, row);
             return row;
         }
 
@@ -606,23 +695,21 @@ namespace AFVReplay.UI
             Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Font = MMI.eurofont_winverysml, BackColor = WinBg, Margin = new Padding(0, 0, 6, 0),
         };
 
+        /// <summary>A slider row with its value beside it, on one line.</summary>
         // vatSys's Slider places its handle as Value/Maximum (it ignores Minimum), so each runs from 0
         // and the real minimum is added back.
-        private void AddSetting(TableLayoutPanel t, string name, int min, int max, int value, Func<int, string> text, Action<int> set, int step = 1)
+        private void AddSlider(TableLayoutPanel t, string name, int min, int max, int value, Func<int, string> text, Action<int> set, int step = 1)
         {
             var slider = new Slider
             {
                 Minimum = 0, Maximum = max - min, Value = Math.Max(min, Math.Min(max, value)) - min,
-                Dock = DockStyle.Fill, Height = 24, BackColor = WinBg, ForeColor = Depressed, FontColor = Interactive,
+                AutoSize = false, Height = 22, MaximumSize = new Size(0, 22), Anchor = AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = WinBg, ForeColor = Depressed, FontColor = Interactive,
                 Font = MMI.eurofont_winverysml, CustomPaintText = true, Cursor = Cursors.NoMoveHoriz, Margin = new Padding(2, 0, 2, 0),
                 SmallChange = step, LargeChange = step * 5,
             };
-            slider.PaintText += (o, e) =>
-            {
-                using (var b = new SolidBrush(slider.FontColor))
-                using (var f = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-                    e.Graphics.DrawString(text(slider.Value + min), slider.Font, b, e.ClipRectangle, f);
-            };
+            slider.PaintText += (o, e) => { }; // the value is drawn beside the slider, not under it
+            var valueLabel = new TextLabel(true) { Text = text(slider.Value + min), AutoSize = true, Anchor = AnchorStyles.Right, Font = MMI.eurofont_winverysml, BackColor = WinBg, Margin = new Padding(0) };
             slider.Scroll += (o, e) =>
             {
                 int v = slider.Value + min;
@@ -631,10 +718,11 @@ namespace AFVReplay.UI
                     int snapped = (int)Math.Round(v / (double)step) * step;
                     if (snapped != v) { slider.Value = snapped - min; v = snapped; }
                 }
+                valueLabel.Text = text(v);
                 set(v);
                 plugin.ApplySettings();
             };
-            AddRow(t, SettingLabel(name), slider);
+            AddRow(t, SettingLabel(name), slider, valueLabel);
         }
 
         // ------------------------------------------------------------------ helpers
@@ -668,6 +756,7 @@ namespace AFVReplay.UI
                     p.PausedChanged -= Changed;
                 }
                 plugin.Store.Changed -= Changed;
+                plugin.SettingsChanged -= SettingsChangedElsewhere;
                 plugin.CoordStore.Changed -= Changed;
                 MMI.SelectedTrackChanged -= Changed;
                 MMI.SelectedGroundTrackChanged -= Changed;

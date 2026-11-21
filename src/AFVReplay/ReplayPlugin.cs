@@ -3,6 +3,7 @@ using System.Linq;
 using System.ComponentModel.Composition;
 using System.Windows.Forms;
 using AFVReplay.Audio;
+using AFVReplay.Handoff;
 using AFVReplay.Input;
 using AFVReplay.UI;
 using AFVReplay.VatSys;
@@ -32,6 +33,8 @@ namespace AFVReplay
         private MicHook micHook;
         private WindowsMedia media;
         private MediaPauser mediaPauser;
+        private HandoffMonitor handoff;
+        private Timer afkTimer;
         private string disabledReason;
 
         public string Name => "Say Again";
@@ -45,6 +48,15 @@ namespace AFVReplay
         internal ClipStore CoordStore { get; private set; }
         internal ReplayPlayer CoordPlayer { get; private set; }
         internal ReplayController CoordController { get; private set; }
+
+        /// <summary>AFK: holds calls made while you're away, and requests a break.</summary>
+        internal AfkMode Afk { get; private set; }
+
+        /// <summary>Handoff Alert's tones.</summary>
+        internal AlertPlayer Alerts { get; private set; }
+
+        /// <summary>Raised when a setting is changed from outside the settings page (the Setup page's Handoff Alert button).</summary>
+        internal event EventHandler SettingsChanged;
 
         internal string CoordStatusText
         {
@@ -63,8 +75,18 @@ namespace AFVReplay
 
         internal string StatusText =>
             disabledReason != null ? "Disabled: " + disabledReason
-            : hook != null && hook.IsHooked ? $"Listening on {hook.TapCount} receiver(s)"
-            : "Waiting for AFV to connect";
+            : (hook != null && hook.IsHooked ? $"Listening on {hook.TapCount} receiver(s)" : "Waiting for AFV to connect") + "; " + OwnTxText;
+
+        /// <summary>Your own transmissions: how many PTT presses were kept, and why any weren't.</summary>
+        internal string OwnTxText
+        {
+            get
+            {
+                if (ownTx == null) return "your Tx: unavailable";
+                if (micHook == null || !micHook.AfvHooked) return "your Tx: mic not hooked";
+                return $"your Tx: {ownTx.Recorded}/{ownTx.Presses}" + (ownTx.NoTransmitFrequency > 0 ? $", {ownTx.NoTransmitFrequency} no tx freq" : "");
+            }
+        }
 
         public ReplayPlugin()
         {
@@ -107,6 +129,9 @@ namespace AFVReplay
             CoordStore = new ClipStore(ClipStore.CoordMaxRetention);
             CoordPlayer = new ReplayPlayer();
             CoordController = new ReplayController(CoordStore, CoordPlayer);
+            Alerts = new AlertPlayer();
+            Afk = new AfkMode(hold => { Store.HoldNew = hold; CoordStore.HoldNew = hold; },
+                VatSysBridge.CanRequestBreak, VatSysBridge.RequestBreakOn, VatSysBridge.ToggleRequestBreak);
             // Only one replay at a time, so it's always clear what you're hearing.
             Player.PlaybackStarted += (s, e) => CoordPlayer.Stop();
             CoordPlayer.PlaybackStarted += (s, e) => Player.Stop();
@@ -145,6 +170,8 @@ namespace AFVReplay
             StartCoord();
             StartMic();
             StartMediaPause();
+            StartHandoffAlert();
+            StartAfk();
 
             // Privacy: nothing survives a disconnect or shutdown.
             AFV.Disconnected += (s, e) => { hook.ResetRecordings(); ownTx?.Reset(); };
@@ -214,7 +241,7 @@ namespace AFVReplay
             try
             {
                 media = new WindowsMedia();
-                mediaPauser = new MediaPauser(media, () => Settings.PauseMedia, RadioBusy);
+                mediaPauser = new MediaPauser(media, () => Settings.PauseMedia, RadioBusy, () => Settings.MediaResumeDelay);
                 mediaPauser.Start(TimeSpan.FromMilliseconds(100));
             }
             catch (Exception ex)
@@ -225,12 +252,58 @@ namespace AFVReplay
             }
         }
 
-        /// <summary>Receiving, transmitting, or a hotline/coldline open. Say Again replays don't count.</summary>
+        /// <summary>Handoff Alert (Matt's plugin, now part of Say Again): tones for handoffs to and from you.</summary>
+        private void StartHandoffAlert()
+        {
+            try
+            {
+                handoff = new HandoffMonitor(Alerts, () => Settings.HandoffAlert, () => Settings.HandoffRepeat);
+                handoff.Start();
+            }
+            catch (Exception ex)
+            {
+                handoff = null;
+                Diag.UserError("Say Again: handoff alerts are unavailable. Everything else still works.", ex);
+            }
+        }
+
+        private void StartAfk()
+        {
+            string missing = VatSysBridge.ValidateRequestBreak();
+            if (missing != null)
+            {
+                // AFK still holds calls; it just can't request a break.
+                Afk = new AfkMode(hold => { Store.HoldNew = hold; CoordStore.HoldNew = hold; }, () => false, () => false, () => { });
+                Diag.UserError($"Say Again: AFK can't turn on Request Break with vatSys {VatSysBridge.VatSysVersion} ({missing}). It still keeps your calls.");
+                return;
+            }
+            afkTimer = new Timer { Interval = 500 };
+            afkTimer.Tick += (s, e) =>
+            {
+                try { Afk.Tick(); }
+                catch (Exception ex) { afkTimer.Stop(); Diag.UserError("Say Again: AFK stopped following Request Break.", ex); }
+            };
+            afkTimer.Start();
+        }
+
+        /// <summary>The Setup page's Handoff Alert button.</summary>
+        internal void ToggleHandoffAlert()
+        {
+            Settings.HandoffAlert = !Settings.HandoffAlert;
+            ApplySettings();
+            SettingsChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>Receiving, transmitting, a hotline/coldline open, a Say Again replay playing (not paused), or a handoff tone playing.</summary>
         private bool RadioBusy() =>
-            (hook?.IsReceiving ?? false)
+            Replaying(Player) || Replaying(CoordPlayer)
+            || Alerts.IsPlaying
+            || (hook?.IsReceiving ?? false)
             || vatsys.Audio.Transmitting
             || (coordRecorder?.LineOpen ?? false)
             || VatSysBridge.GetActiveLines().Any(l => l.IsOpen);
+
+        private static bool Replaying(ReplayPlayer p) => p.PlayingClip != null && !p.IsPaused;
 
         /// <summary>The first frequency you're transmitting on, and your callsign.</summary>
         private static (uint hz, string callsign) DescribeTransmit()
@@ -267,6 +340,8 @@ namespace AFVReplay
         private void Shutdown()
         {
             try { mediaPauser?.Dispose(); media?.Flush(TimeSpan.FromSeconds(2)); } catch { } // resume anything paused
+            try { handoff?.Dispose(); } catch { }
+            try { afkTimer?.Dispose(); } catch { }
             try { poller?.Dispose(); } catch { }
             try { vscs?.Dispose(); } catch { }
             try { micHook?.Dispose(); } catch { }

@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- **AFK** button on the VSCS Setup page, right of Handoff Alert. While it's on:
+  - Calls and coord made while you're away aren't deleted; they're kept until the usual Keep Calls / Keep Coord time after you turn AFK off. Calls from before AFK expire as normal, the 200-call cap still applies, and disconnecting still wipes everything.
+  - vatSys's **Request Break** (Tools menu) is turned on, as soon as you're connected as ATC if you aren't yet. Turning AFK off turns Request Break off; turning Request Break off yourself turns AFK off.
+  - AFK is always off when vatSys starts.
+- **Handoff Alert**, merged in from Matt's Handoff Alert plugin (with his blessing; thanks Matt). Off by default; turn it on with the **Handoff Alert** button on the VSCS Setup page (where Matt's plugin had it) or in Settings → **Alerts**.
+  - A handoff to you plays a rising two-tone, repeated until you accept it. **Repeat** (Alerts tab) sets how often: every 3-10 seconds (5 by default) or Off (once).
+  - When someone accepts your handoff you hear a falling two-tone; if they refuse it, a flat tone.
+  - Tones play through vatSys's alert output, at vatSys's alert volume (Windows' default output if that isn't available). They're made in memory; nothing is read from or written to disk.
+  - With Pause Media on, a handoff tone pauses your media too.
+  - Flight plans and tracks are now read on vatSys's UI thread, not a background thread.
+  - If Matt's separate Handoff Alert plugin is still installed, Say Again says so once (you'd hear every tone twice). Nothing is switched off.
+  - Settings are now in three pages: **Replay**, **Media** and **Alerts**.
+- Say Again's VSCS buttons (Say Again, Settings, ▲, ▶, ▼) match vatSys's own: the VSCS background colour (#8C9696 in the Australia profile) when unpressed, and the darker pressed colour (#829292) only while pressed or active. Spotted by Matt.
+- Your own transmissions are always recorded: everything from your mic while PTT is held on a transmit frequency goes in the list, however quiet or short. (Before, very quiet transmissions were dropped as silence and presses under 250 ms were dropped.)
+- The Settings status line counts your own transmissions ("your Tx: kept/presses"), noting presses with no transmit frequency, or "mic not hooked" if the mic can't be listened to.
+- Pause Media also pauses while a Say Again replay is playing (not while it's paused).
+- **Resume Media** setting: how long after the radio goes quiet paused media resumes, 1-5 seconds (2 by default), or **Never** (it stays paused for you to resume yourself).
+- Settings split into pages, **Replay** (Keep Calls, Keep Coord, Volume, Speed, Stop On New, Highlight Selected Pilot) and **Media** (Pause Media, Resume Media), with each slider's value beside it on one line. The status lines sit at the bottom and no longer spill off.
+
 ## v0.1.6
 
 - **Pause Media** (Settings, off by default): pauses Spotify, browser tabs and anything else in Windows' media controls while the radio is busy (receiving, transmitting or a hotline/coldline open), and resumes them 2 seconds after it goes quiet. Only what was playing is paused, and only that is resumed, so anything you started or stopped yourself in the meantime is left alone. Say Again replays don't count as busy.

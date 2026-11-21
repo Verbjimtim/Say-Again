@@ -4,12 +4,12 @@ using System.Collections.Generic;
 namespace AFVReplay.Audio
 {
     /// <summary>
-    /// Records your own frequency transmissions: your AFV mic while PTT is held, one clip per press.
+    /// Records your own frequency transmissions: all your AFV mic audio while PTT is held on a transmit
+    /// frequency, one clip per press. No noise gate or minimum length: however quiet or short, it's kept.
     /// Called on vatSys's mic capture thread with the same audio AFV encodes and sends.
     /// </summary>
     internal sealed class OwnTxRecorder
     {
-        public static readonly int MinSamples = AudioFormat.SampleRate / 4;      // 250 ms
         public static readonly int MaxClipSamples = AudioFormat.SampleRate * 90;
         public static readonly TimeSpan StreamTimeout = TimeSpan.FromMilliseconds(400);
 
@@ -42,6 +42,15 @@ namespace AFVReplay.Audio
 
         public bool IsRecording { get { lock (sync) return clip != null; } }
 
+        // Counts for the status line, so a missing transmission can be traced (no audio or callsigns kept).
+        private bool wasTransmitting;
+        /// <summary>PTT presses seen (while connected to AFV).</summary>
+        public int Presses { get; private set; }
+        /// <summary>Presses with no frequency set to transmit.</summary>
+        public int NoTransmitFrequency { get; private set; }
+        /// <summary>Transmissions handed on to be stored.</summary>
+        public int Recorded { get; private set; }
+
         /// <summary>16-bit little-endian mono 48 kHz mic audio.</summary>
         public void Feed(byte[] pcm16, int offset, int byteCount)
         {
@@ -59,6 +68,7 @@ namespace AFVReplay.Audio
                 }
                 else if (clip == null && (ignoringPress || !Begin(now)))
                 {
+                    if (!ignoringPress) NoTransmitFrequency++;
                     // PTT held but this press transmits nothing (no frequency set to transmit): wait for release.
                     ignoringPress = true;
                 }
@@ -89,7 +99,10 @@ namespace AFVReplay.Audio
             RawRecording r = null;
             lock (sync)
             {
-                if (clip != null && (!isTransmitting() || now - lastAudioUtc > StreamTimeout)) r = Finish(now);
+                bool tx = isTransmitting();
+                if (tx && !wasTransmitting) Presses++;
+                wasTransmitting = tx;
+                if (clip != null && (!tx || now - lastAudioUtc > StreamTimeout)) r = Finish(now);
             }
             if (r != null) onComplete(r);
         }
@@ -150,11 +163,12 @@ namespace AFVReplay.Audio
             int len = clipLen;
             clip = null;
             clipLen = 0;
-            if (len < MinSamples)
+            if (len == 0)
             {
                 Array.Clear(pcm, 0, pcm.Length);
                 return null;
             }
+            Recorded++;
             return new RawRecording
             {
                 Pcm = pcm,

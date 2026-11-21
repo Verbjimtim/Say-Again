@@ -50,12 +50,43 @@ namespace AFVReplay.Audio
             }
         }
 
+        private bool holdNew;
+
+        /// <summary>
+        /// AFK: while on, calls added are held (never expire). Turned off, the held calls' keep time starts
+        /// from then, so they go the usual retention after AFK ends. Calls from before AFK expire as normal.
+        /// </summary>
+        public bool HoldNew
+        {
+            get { lock (sync) return holdNew; }
+            set => SetHoldNew(value, DateTime.UtcNow);
+        }
+
+        internal void SetHoldNew(bool hold, DateTime nowUtc)
+        {
+            lock (sync)
+            {
+                if (holdNew == hold) return;
+                holdNew = hold;
+                if (!hold)
+                {
+                    foreach (var c in clips.Where(c => c.Held))
+                    {
+                        c.Held = false;
+                        c.KeepFromUtc = nowUtc;
+                    }
+                }
+            }
+            Prune(nowUtc);
+        }
+
         public long NextId() => System.Threading.Interlocked.Increment(ref nextId);
 
         public void Add(Clip clip)
         {
             lock (sync)
             {
+                if (holdNew) clip.Held = true;
                 clips.Add(clip);
                 clips.Sort((a, b) => a.EndUtc.CompareTo(b.EndUtc));
                 while (clips.Count > MaxClips)
@@ -96,7 +127,8 @@ namespace AFVReplay.Audio
                 var cutoff = nowUtc - retention;
                 for (int i = clips.Count - 1; i >= 0; i--)
                 {
-                    if (clips[i].EndUtc < cutoff)
+                    var c = clips[i];
+                    if (!c.Held && (c.KeepFromUtc > c.EndUtc ? c.KeepFromUtc : c.EndUtc) < cutoff)
                     {
                         clips[i].Wipe();
                         clips.RemoveAt(i);

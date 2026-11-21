@@ -85,7 +85,8 @@ namespace AFVReplay.Audio
                 return;
             }
             double rms = Rms(rec.Pcm, rec.Length);
-            if (rms < SilenceRms) return;
+            // Your own transmissions are kept however quiet: PTT held on a transmit frequency is a transmission.
+            if (rms < SilenceRms && !rec.IsOwn) return;
 
             // Collapse duplicates of the same transmission picked up by another receiver.
             // (Coord calls come from one stream per controller, so they never have duplicates.)

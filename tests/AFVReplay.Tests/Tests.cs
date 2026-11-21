@@ -66,6 +66,11 @@ namespace AFVReplay.Tests
             Run(nameof(SilentLineCallsLogged), SilentLineCallsLogged);
             Run(nameof(EndToEnd_RealVatSysMicInputs), EndToEnd_RealVatSysMicInputs);
             Run(nameof(MediaPausesWhileRadioBusy), MediaPausesWhileRadioBusy);
+            Run(nameof(HandoffTests.HandoffTrackerFollowsHandoffs), HandoffTests.HandoffTrackerFollowsHandoffs);
+            Run(nameof(HandoffTests.HandoffMonitorPlaysTones), HandoffTests.HandoffMonitorPlaysTones);
+            Run(nameof(HandoffTests.HandoffTonesPlayThroughVatSys), HandoffTests.HandoffTonesPlayThroughVatSys);
+            Run(nameof(HandoffTests.HandoffSettings), HandoffTests.HandoffSettings);
+            Run(nameof(HandoffTests.AfkHoldsCallsAndRequestsBreak), HandoffTests.AfkHoldsCallsAndRequestsBreak);
 
             Console.WriteLine();
             Console.WriteLine($"{passes} passed, {failures} failed");
@@ -968,7 +973,7 @@ namespace AFVReplay.Tests
             Assert(Math.Abs(secs - 1.5) < 0.05, "transmission length " + secs);
 
             ptt = true; Mic(0.1, 0.2); ptt = false; Mic(0.1, 0);
-            Assert(done.Count == 1, "a PTT blip should be dropped");
+            Assert(done.Count == 2, "a short PTT press is still a transmission: kept");
 
             // Observer (no frequency set to transmit): PTT does nothing, so nothing is recorded.
             var observer = new OwnTxRecorder(done.Add, () => ptt, () => (0u, "ML_OBS"), () => line.Now);
@@ -982,7 +987,21 @@ namespace AFVReplay.Tests
             ptt = true; Mic(1.0, 0.2);
             line.Now = line.Now.AddMilliseconds(500);
             rec.Tick();
-            Assert(done.Count == 2 && !rec.IsRecording, "should close when the mic stops");
+            Assert(done.Count == 3 && !rec.IsRecording, "should close when the mic stops");
+
+            // No noise gate on your own transmissions: a whisper is kept; a silent received clip isn't.
+            ptt = true; Mic(1.0, 0.0002); ptt = false; Mic(0.1, 0);
+            Assert(done.Count == 4, "quiet transmission recorded");
+            var store = new ClipStore();
+            using (var fin = new ClipFinalizer(store, _ => "124.400"))
+            {
+                fin.Process(done[3]);
+                var rx = new RawRecording { Pcm = new short[48000], Length = 48000, StartUtc = line.Now, EndUtc = line.Now.AddSeconds(1), FrequencyHz = 124_400_000, Callsigns = new List<string> { "QFA1" } };
+                fin.Process(rx);
+            }
+            Assert(store.Snapshot().Count == 1 && store.Snapshot()[0].IsOwn, "quiet own transmission stored, silent received clip dropped");
+            Assert(rec.Recorded == 4, $"status counts: {rec.Recorded} recorded");
+            Assert(observer.NoTransmitFrequency == 1 && observer.Recorded == 0, "status counts: observer press has no tx freq");
         }
 
         private static Clip FreqClip(string callsign, DateTime start, double secs, bool own = false, double level = 0.14) =>
@@ -1116,6 +1135,7 @@ namespace AFVReplay.Tests
             public readonly List<string> Calls = new List<string>();
             public void PausePlaying() => Calls.Add("pause");
             public void ResumePaused() => Calls.Add("resume");
+            public void Forget() => Calls.Add("forget");
         }
 
         /// <summary>
@@ -1128,7 +1148,8 @@ namespace AFVReplay.Tests
             var media = new FakeMedia();
             var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
             bool on = false, busy = false;
-            var p = new MediaPauser(media, () => on, () => busy, () => now);
+            TimeSpan? delay = TimeSpan.FromSeconds(2);
+            var p = new MediaPauser(media, () => on, () => busy, () => delay, () => now);
             void Step(double seconds) { for (int i = 0; i < seconds * 10; i++) { now = now.AddMilliseconds(100); p.Tick(); } }
 
             busy = true; Step(1);
@@ -1156,6 +1177,30 @@ namespace AFVReplay.Tests
             Assert(string.Join(",", media.Calls) == "pause,resume,pause,resume,pause,resume", "shutdown resumes: " + string.Join(",", media.Calls));
             p.Dispose();
             Assert(media.Calls.Count == 6, "nothing more after shutdown");
+
+            // Resume delay setting: 5 s, then never (left paused and forgotten, so the next call pauses again).
+            media.Calls.Clear();
+            p = new MediaPauser(media, () => on, () => busy, () => delay, () => now);
+            delay = TimeSpan.FromSeconds(5);
+            busy = true; Step(1);
+            busy = false; Step(4.5);
+            Assert(string.Join(",", media.Calls) == "pause", "5 s: still paused at 4.5 s: " + string.Join(",", media.Calls));
+            Step(1);
+            Assert(string.Join(",", media.Calls) == "pause,resume", "5 s: resumed: " + string.Join(",", media.Calls));
+            delay = null;
+            busy = true; Step(1);
+            busy = false; Step(10);
+            Assert(string.Join(",", media.Calls) == "pause,resume,pause,forget" && !p.Paused, "never: left paused: " + string.Join(",", media.Calls));
+            busy = true; Step(1);
+            Assert(string.Join(",", media.Calls) == "pause,resume,pause,forget,pause", "never: next call pauses again: " + string.Join(",", media.Calls));
+            busy = false; Step(1);
+            p.Dispose();
+            Assert(string.Join(",", media.Calls) == "pause,resume,pause,forget,pause,forget", "never: nothing resumed on shutdown: " + string.Join(",", media.Calls));
+
+            var st = new ReplaySettings { MediaResumeSeconds = 99 };
+            st.Normalise();
+            Assert(st.MediaResumeSeconds == ReplaySettings.ResumeNever && st.MediaResumeDelay == null, "beyond 5 s is never");
+            Assert(new ReplaySettings().MediaResumeDelay == TimeSpan.FromSeconds(2), "default resume 2 s");
 
             var fresh = new ReplaySettings();
             Assert(!fresh.PauseMedia, "Pause Media is off by default");

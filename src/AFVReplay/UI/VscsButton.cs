@@ -70,9 +70,12 @@ namespace AFVReplay.UI
         {
             var g = e.Graphics;
             var r = ClientRectangle;
+            // Like vatSys: unpressed buttons are the VSCS background colour (#8C9696 in the Australia profile);
+            // pressed ones (held down, active, or a toggle that's on) are the darker "depressed" colour (#829292).
+            bool down = sunk || mouseDown || face == Faces.Depressed;
             var id = face == Faces.Receiving ? Colours.Identities.VSCSReceivingFrequency
                    : face == Faces.Selected ? Colours.Identities.VSCSButtonSelected
-                   : face == Faces.Depressed || mouseDown ? Colours.Identities.VSCSButtonDepressed
+                   : down ? Colours.Identities.VSCSButtonDepressed
                    : Colours.Identities.VSCSBackground;
             using (var b = new SolidBrush(Colours.GetColour(id))) g.FillRectangle(b, r);
 
@@ -121,7 +124,6 @@ namespace AFVReplay.UI
                 TextRenderer.DrawText(g, subText, Fit(g, subText, subFont, r.Width - 4), bottom, colour, flags | TextFormatFlags.Top);
             }
 
-            bool down = sunk || mouseDown;
             var bevel = Colours.GetColour(Colours.Identities.VSCSBackground);
             using (var lp = new Pen(down ? ControlPaint.DarkDark(bevel) : ControlPaint.LightLight(bevel), 2f))
             using (var dp = new Pen(down ? ControlPaint.LightLight(bevel) : ControlPaint.DarkDark(bevel), 2f))

@@ -27,6 +27,8 @@ namespace AFVReplay.Audio
 
         public void ResumePaused() => Enqueue(ResumeNow);
 
+        public void Forget() => Enqueue(() => { paused.Clear(); return Task.CompletedTask; });
+
         /// <summary>Waits for queued calls (used on shutdown so paused media is resumed first).</summary>
         public void Flush(TimeSpan timeout)
         {

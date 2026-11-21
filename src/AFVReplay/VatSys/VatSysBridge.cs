@@ -358,6 +358,128 @@ namespace AFVReplay.VatSys
             return new CheckBox { Appearance = Appearance.Button, FlatStyle = FlatStyle.Flat, TextAlign = System.Drawing.ContentAlignment.MiddleCenter };
         }
 
+        // Optional: vatSys's alert sound output, for handoff tones. If any of this changes, the tones play
+        // through Windows' default output instead (see ValidateAlertSound).
+        private static readonly FieldInfo AudioInstance = typeof(vatsys.Audio).GetField("Instance", Stat);
+        private static readonly PropertyInfo AudioAlertEngine = typeof(vatsys.Audio).GetProperty("AlertSoundsEngine", Inst);
+        private static readonly Type CachedSoundType = VatSysAssembly.GetType("vatsys.CachedSound");
+        private static readonly MethodInfo AudioPlayAlertSound = CachedSoundType == null ? null
+            : typeof(vatsys.Audio).GetMethod("PlayAlertSound", Inst, null, new[] { CachedSoundType, typeof(bool) }, null);
+        private static readonly Type PlaybackEngineType = VatSysAssembly.GetType("vatsys.AudioPlaybackEngine");
+        private static readonly FieldInfo PlaybackEngineFormat = PlaybackEngineType?.GetField("waveFormat", Inst);
+        // CachedSound only loads from a file; ours is made in memory by filling in its properties' fields.
+        private static readonly FieldInfo CachedSoundData = CachedSoundType?.GetField("<AudioData>k__BackingField", Inst);
+        private static readonly FieldInfo CachedSoundFormat = CachedSoundType?.GetField("<WaveFormat>k__BackingField", Inst);
+        private static readonly FieldInfo CachedSoundDuration = CachedSoundType?.GetField("<AudioDuration>k__BackingField", Inst);
+
+        /// <summary>Returns null when tones can play through vatSys's alert output, otherwise what is missing.</summary>
+        public static string ValidateAlertSound()
+        {
+            var missing = new List<string>();
+            void Check(object member, string name) { if (member == null) missing.Add(name); }
+            Check(AudioInstance, "Audio.Instance");
+            Check(AudioAlertEngine, "Audio.AlertSoundsEngine");
+            Check(AudioPlayAlertSound, "Audio.PlayAlertSound");
+            Check(PlaybackEngineFormat, "AudioPlaybackEngine.waveFormat");
+            Check(CachedSoundData, "CachedSound.AudioData");
+            Check(CachedSoundFormat, "CachedSound.WaveFormat");
+            Check(CachedSoundDuration, "CachedSound.AudioDuration");
+            if (CachedSoundData != null && CachedSoundData.FieldType != typeof(float[])) missing.Add("AudioData type");
+            if (CachedSoundFormat != null && CachedSoundFormat.FieldType != typeof(WaveFormat)) missing.Add("WaveFormat type");
+            if (CachedSoundDuration != null && CachedSoundDuration.FieldType != typeof(double)) missing.Add("AudioDuration type");
+            return missing.Count == 0 ? null : string.Join(", ", missing);
+        }
+
+        /// <summary>vatSys's alert mixer format (sounds must match it), or null if it isn't available.</summary>
+        public static (int rate, int channels)? GetAlertFormat()
+        {
+            if (ValidateAlertSound() != null) return null;
+            var audio = AudioInstance.GetValue(null);
+            if (audio == null) return null;
+            var engine = AudioAlertEngine.GetValue(audio);
+            if (engine == null) return null;
+            if (!(PlaybackEngineFormat.GetValue(engine) is WaveFormat f) || f.SampleRate <= 0 || f.Channels <= 0) return null;
+            return (f.SampleRate, f.Channels);
+        }
+
+        /// <summary>Plays interleaved float samples once through vatSys's alert output.</summary>
+        public static void PlayAlertSound(float[] samples, int rate, int channels)
+        {
+            var audio = AudioInstance.GetValue(null) ?? throw new InvalidOperationException("vatSys audio not started");
+            AudioPlayAlertSound.Invoke(audio, new[] { MakeCachedSound(samples, rate, channels), (object)false });
+        }
+
+        /// <summary>A vatSys CachedSound holding these samples (as if loaded from a float WAV file).</summary>
+        internal static object MakeCachedSound(float[] samples, int rate, int channels)
+        {
+            var sound = System.Runtime.Serialization.FormatterServices.GetUninitializedObject(CachedSoundType);
+            CachedSoundData.SetValue(sound, samples);
+            CachedSoundFormat.SetValue(sound, WaveFormat.CreateIeeeFloatWaveFormat(rate, channels));
+            CachedSoundDuration.SetValue(sound, samples.Length / (double)channels / rate); // seconds, as vatSys sets it
+            return sound;
+        }
+
+        /// <summary>For tests: a CachedSound loaded by vatSys itself from a WAV file.</summary>
+        internal static object LoadCachedSound(string path) => Activator.CreateInstance(CachedSoundType, path);
+
+        internal static (float[] data, WaveFormat format, double duration) ReadCachedSound(object sound) =>
+            ((float[])CachedSoundData.GetValue(sound), (WaveFormat)CachedSoundFormat.GetValue(sound), (double)CachedSoundDuration.GetValue(sound));
+
+        // Handoffs: which plans are being handed to or by you.
+        /// <summary>Every flight plan vatSys has, as handoff snapshots. UI thread only.</summary>
+        public static List<Handoff.TrackSnapshot> GetHandoffSnapshots()
+        {
+            var result = new List<Handoff.TrackSnapshot>();
+            foreach (var fdr in vatsys.FDP2.GetFDRs.ToArray())
+            {
+                if (fdr == null || string.IsNullOrEmpty(fdr.Callsign)) continue;
+                var state = vatsys.MMI.FindTrack(fdr)?.State;
+                result.Add(new Handoff.TrackSnapshot(fdr.Callsign,
+                    state == vatsys.MMI.HMIStates.HandoverIn, state == vatsys.MMI.HMIStates.HandoverOut, fdr.IsTrackedByMe));
+            }
+            return result;
+        }
+
+        /// <summary>True if Matt's separate Handoff Alert plugin is loaded too.</summary>
+        public static bool HandoffAlertPluginLoaded() =>
+            AppDomain.CurrentDomain.GetAssemblies().Any(a => string.Equals(a.GetName().Name, "HandoffAlertPlugin", StringComparison.OrdinalIgnoreCase));
+
+        // Optional: vatSys's Request Break (Tools menu), for AFK. Clicking the menu item itself keeps vatSys's
+        // tick mark right. If any of this changes, AFK still holds calls but can't request a break.
+        private static readonly FieldInfo NetworkInstance = typeof(vatsys.Network).GetField("Instance", Stat);
+        private static readonly PropertyInfo NetworkRequestBreak = typeof(vatsys.Network).GetProperty("RequestBreak", Inst);
+        private static readonly FieldInfo MainFormRequestBreakItem = VatSysAssembly.GetType("vatsys.MainForm")?.GetField("requestBreakToolStripMenuItem", Inst);
+
+        /// <summary>Returns null when AFK can use vatSys's Request Break, otherwise what is missing.</summary>
+        public static string ValidateRequestBreak()
+        {
+            var missing = new List<string>();
+            if (NetworkInstance == null) missing.Add("Network.Instance");
+            if (NetworkRequestBreak == null) missing.Add("Network.RequestBreak");
+            if (MainFormRequestBreakItem == null) missing.Add("MainForm.requestBreakToolStripMenuItem");
+            return missing.Count == 0 ? null : string.Join(", ", missing);
+        }
+
+        /// <summary>Connected as ATC: vatSys only sends a break request then.</summary>
+        public static bool CanRequestBreak()
+        {
+            try { return vatsys.Network.IsConnected && vatsys.Network.IsValidATC; }
+            catch { return false; }
+        }
+
+        /// <summary>vatSys's Request Break is on.</summary>
+        public static bool RequestBreakOn()
+        {
+            var network = NetworkInstance?.GetValue(null);
+            return network != null && NetworkRequestBreak != null && (bool)NetworkRequestBreak.GetValue(network);
+        }
+
+        /// <summary>Clicks Tools → Request Break. UI thread only.</summary>
+        public static void ToggleRequestBreak()
+        {
+            if (MainFormRequestBreakItem?.GetValue(MainForm) is ToolStripMenuItem item) item.PerformClick();
+        }
+
         public static void StopVatSysInput() => DicStop.Invoke(null, null);
 
         public static void StartVatSysInput() => DicStart.Invoke(null, null);

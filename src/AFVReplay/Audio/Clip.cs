@@ -25,6 +25,7 @@ namespace AFVReplay.Audio
             Blocked = blocked;
             this.frames = frames;
             SampleCount = sampleCount;
+            KeepFromUtc = endUtc;
         }
 
         public long Id { get; }
@@ -43,6 +44,12 @@ namespace AFVReplay.Audio
 
         /// <summary>Your own voice: a PTT transmission, or your side of a line.</summary>
         public bool IsOwn { get; }
+
+        /// <summary>Made while AFK was on: kept until AFK is turned off (see <see cref="ClipStore.HoldNew"/>).</summary>
+        internal bool Held { get; set; }
+
+        /// <summary>When its keep time counts from: its end, or when AFK was turned off if it was held.</summary>
+        internal DateTime KeepFromUtc { get; set; }
 
         /// <summary>Speech level (real RMS, see <see cref="AudioLevel.Speech"/>); 0 when unknown.</summary>
         public double SpeechLevel { get; internal set; }

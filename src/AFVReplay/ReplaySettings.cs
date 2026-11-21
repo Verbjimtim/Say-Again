@@ -30,6 +30,27 @@ namespace AFVReplay
         /// <summary>Pause other apps' media (Spotify, browser, etc.) while the radio is busy. Off by default.</summary>
         public bool PauseMedia { get; set; }
 
+        /// <summary>Seconds of quiet before paused media resumes: 1-5, or <see cref="ResumeNever"/>.</summary>
+        public int MediaResumeSeconds { get; set; } = 2;
+
+        /// <summary><see cref="MediaResumeSeconds"/> value for "never resume".</summary>
+        public const int ResumeNever = 6;
+
+        /// <summary>The resume delay, or null for never.</summary>
+        public TimeSpan? MediaResumeDelay => MediaResumeSeconds >= ResumeNever ? (TimeSpan?)null : TimeSpan.FromSeconds(MediaResumeSeconds);
+
+        /// <summary>Handoff Alert: tones for a handoff to you, your handoff accepted, and your handoff refused. Off by default.</summary>
+        public bool HandoffAlert { get; set; }
+
+        /// <summary>Seconds between repeats while a handoff to you waits: 3-10, or <see cref="RepeatOff"/>.</summary>
+        public int HandoffRepeatSeconds { get; set; } = 5;
+
+        /// <summary><see cref="HandoffRepeatSeconds"/> value for "don't repeat".</summary>
+        public const int RepeatOff = 2;
+
+        /// <summary>The repeat interval, or null for no repeat.</summary>
+        public TimeSpan? HandoffRepeat => HandoffRepeatSeconds <= RepeatOff ? (TimeSpan?)null : TimeSpan.FromSeconds(HandoffRepeatSeconds);
+
         /// <summary>Replay volume, 0-200 percent, on top of the vatSys output volume.</summary>
         public int VolumePercent { get; set; } = 100;
 
@@ -45,6 +66,8 @@ namespace AFVReplay
             VolumePercent = Math.Max(0, Math.Min(200, VolumePercent));
             SpeedPercent = Math.Max(100, Math.Min(200, SpeedPercent));
             CoordRetentionMinutes = Math.Max(1, Math.Min(10, CoordRetentionMinutes));
+            MediaResumeSeconds = Math.Max(1, Math.Min(ResumeNever, MediaResumeSeconds));
+            HandoffRepeatSeconds = Math.Max(RepeatOff, Math.Min(10, HandoffRepeatSeconds));
             ReplayBinding = ReplayBinding ?? "";
             CoordReplayBinding = CoordReplayBinding ?? "";
         }

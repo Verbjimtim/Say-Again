@@ -32,7 +32,7 @@ namespace AFVReplay.UI
 
         private readonly ReplayPlugin plugin;
         private readonly SayAgainPlaylist playlist;
-        private readonly VscsButton older, playPause, newer, settingsButton;
+        private readonly VscsButton older, playPause, newer, settingsButton, afkButton;
         private readonly TextLabel lastTxLabel, lastTx, selectedLabel, selected;
         private readonly Panel listArea, settingsArea;
         private readonly ListView list;
@@ -65,6 +65,8 @@ namespace AFVReplay.UI
             older = Button("", "", (s, e) => playlist.Older(SelectedClip));
             older.Arrow = VscsButton.Arrows.Down;
             settingsButton = Button("Settings", "", (s, e) => ShowSettings(!settingsArea.Visible));
+            // AFK, in the space under the down button: holds calls made while you're away, requests a break.
+            afkButton = Button("AFK", "", (s, e) => { plugin.Afk.Toggle(); afkButton.Sunk = plugin.Afk.On; });
 
             lastTxLabel = Info(false, "Last Tx:");
             lastTx = Info(true, "");
@@ -88,6 +90,8 @@ namespace AFVReplay.UI
             list.DoubleClick += (s, e) => { if (SelectedClip != null) playlist.Play(SelectedClip); };
             list.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter && SelectedClip != null) playlist.Play(SelectedClip); };
             list.Resize += (s, e) => FitColumns();
+            // AFK markers are lines, not calls: they can't be selected.
+            list.ItemSelectionChanged += (s, e) => { if (e.IsSelected && e.Item.Tag is AfkMarker) e.Item.Selected = false; };
             // Double-buffered so in-place updates don't flicker.
             typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.SetValue(list, true);
             // The list's own Windows scroll bar is clipped off its right edge; vatSys's scroll bar
@@ -135,13 +139,14 @@ namespace AFVReplay.UI
             }
             plugin.Store.Changed += Changed;
             plugin.CoordStore.Changed += Changed;
+            plugin.Afk.Changed += Changed;
             MMI.SelectedTrackChanged += Changed;
             MMI.SelectedGroundTrackChanged += Changed;
             ResumeLayout(true);
             RefreshView();
         }
 
-        private Clip SelectedClip => list.SelectedItems.Count > 0 ? (Clip)list.SelectedItems[0].Tag : null;
+        private Clip SelectedClip => list.SelectedItems.Count > 0 ? list.SelectedItems[0].Tag as Clip : null;
 
         internal SayAgainPlaylist Playlist => playlist;
 
@@ -161,6 +166,7 @@ namespace AFVReplay.UI
             newer.Bounds = new Rectangle(0, VscsLayout.RowY(1), W, H);
             playPause.Bounds = new Rectangle(0, VscsLayout.RowY(2), W, H);
             older.Bounds = new Rectangle(0, VscsLayout.RowY(3), W, H);
+            afkButton.Bounds = new Rectangle(0, VscsLayout.RowY(4), W, H);
 
             int x = W + 2 * P;
             int width = Math.Max(80, ClientSize.Width - x - P);
@@ -178,6 +184,8 @@ namespace AFVReplay.UI
             }
             var area = new Rectangle(x, top + 40, width, Math.Max(60, ClientSize.Height - top - 40 - P));
             settingsArea.Bounds = area;
+            // Status lines wrap at the settings area's width instead of running off it.
+            status.MaximumSize = new Size(Math.Max(40, area.Width - 16), 0);
             // The list leaves room under it for the progress bar, and beside it for the scroll bar
             // (20 px, as on the Text page).
             const int bar = 18, scrollWidth = 20;
@@ -366,6 +374,7 @@ namespace AFVReplay.UI
             else
                 playPause.SetSymbol(VscsButton.Arrows.Play, "", VscsButton.Faces.Normal, false);
             settingsButton.Sunk = settingsArea.Visible;
+            afkButton.Sunk = plugin.Afk.On; // pressed while AFK is on
 
             // Call-outs.
             var now = DateTime.UtcNow;
@@ -399,7 +408,7 @@ namespace AFVReplay.UI
                 }
                 list.Invalidate(); // the playing row is drawn bold
             }
-            status.Text = plugin.StatusText + Environment.NewLine + plugin.CoordStatusText;
+            status.Text = StatusOverride ?? plugin.StatusText + Environment.NewLine + plugin.CoordStatusText;
         }
 
         private Clip followed;
@@ -413,12 +422,15 @@ namespace AFVReplay.UI
             return cs != null && plugin.Settings.HighlightSelectedPilot && c.Callsigns.Any(s => string.Equals(s, cs, StringComparison.OrdinalIgnoreCase));
         }
 
-        private ListViewItem FindItem(Clip c)
+        private ListViewItem FindItem(object row)
         {
-            if (c == null) return null;
-            foreach (ListViewItem i in list.Items) if (i.Tag == c) return i;
+            if (row == null) return null;
+            foreach (ListViewItem i in list.Items) if (Equals(i.Tag, row)) return i;
             return null;
         }
+
+        private ListViewItem MakeItem(object row) =>
+            row is Clip c ? MakeItem(c) : new ListViewItem(new[] { "", "", "", "" }) { Tag = row };
 
         private ListViewItem MakeItem(Clip c) =>
             new ListViewItem(new[] { "", Where(c), c.CallsignText + (c.Blocked ? " (blocked)" : ""), c.IsSilent ? "silent" : $"{c.Duration.TotalSeconds:0.0}s" }) { Tag = c };
@@ -427,25 +439,27 @@ namespace AFVReplay.UI
         /// Brings the list in line with the calls kept, in place: new calls are inserted at the top,
         /// expired ones removed, nothing else touched. Selection is kept, and if you've scrolled down
         /// the same calls stay in view. "Ago" text is only rewritten when it changes (once a minute).
+        /// AFK's "Away from Keyboard" / "Back at Keyboard" lines go in between (see <see cref="AfkMarker.Place"/>).
         /// </summary>
-        internal void SyncList(List<Clip> items, DateTime now)
+        internal void SyncList(List<Clip> calls, DateTime now)
         {
-            var wanted = new HashSet<Clip>(items);
+            var items = AfkMarker.Place(calls, plugin.Afk.Periods);
+            var wanted = new HashSet<object>(items);
             KeepInRange();
             int topRow = TopRow;
-            var topClip = list.Items.Count > 0 ? list.Items[topRow].Tag as Clip : null;
+            var topClip = list.Items.Count > 0 ? list.Items[topRow].Tag : null;
             bool scrolled = list.Items.Count > 0 && topRow > 0;
             bool changed = false;
 
             list.BeginUpdate();
             for (int i = list.Items.Count - 1; i >= 0; i--)
             {
-                if (!wanted.Contains((Clip)list.Items[i].Tag)) { list.Items.RemoveAt(i); changed = true; }
+                if (!wanted.Contains(list.Items[i].Tag)) { list.Items.RemoveAt(i); changed = true; }
             }
             for (int i = 0; i < items.Count; i++)
             {
                 var c = items[i];
-                if (i < list.Items.Count && list.Items[i].Tag == c) continue;
+                if (i < list.Items.Count && Equals(list.Items[i].Tag, c)) continue;
                 var existing = FindItem(c);
                 if (existing != null) { list.Items.Remove(existing); list.Items.Insert(i, existing); }
                 else list.Items.Insert(i, MakeItem(c));
@@ -453,7 +467,8 @@ namespace AFVReplay.UI
             }
             foreach (ListViewItem item in list.Items)
             {
-                string ago = Ago(now - ((Clip)item.Tag).EndUtc);
+                if (!(item.Tag is Clip clip)) continue;
+                string ago = Ago(now - clip.EndUtc);
                 if (item.SubItems[0].Text != ago) item.SubItems[0].Text = ago;
             }
             list.EndUpdate();
@@ -520,6 +535,7 @@ namespace AFVReplay.UI
 
         private void List_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
+            if (e.Item.Tag is AfkMarker marker) { DrawMarker(e, marker); return; }
             var clip = (Clip)e.Item.Tag;
             bool playing = plugin.Player.PlayingClip == clip || plugin.CoordPlayer.PlayingClip == clip;
             // The selected aircraft's calls: the row tinted with vatSys's highlight colour (cyan in the
@@ -532,6 +548,35 @@ namespace AFVReplay.UI
             if (e.Item.Selected) colour = Readable(mine ? Highlighted : WinBg, back);
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, playing ? listBold : listFont, Inset(e.Bounds), colour,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+
+        /// <summary>
+        /// An AFK marker: a thin line across the row in the heading colour (like the line under the column
+        /// titles) with its label in the middle. Every column draws the whole row, clipped to its own cell,
+        /// so the line and label run across the columns unbroken.
+        /// </summary>
+        private void DrawMarker(DrawListViewSubItemEventArgs e, AfkMarker marker)
+        {
+            var g = e.Graphics;
+            var state = g.Save();
+            try
+            {
+                g.SetClip(e.Bounds);
+                using (var b = new SolidBrush(WinBg)) g.FillRectangle(b, e.Bounds);
+                var row = e.Item.Bounds;
+                row.Width = Math.Min(row.Width, listClip.ClientSize.Width); // the visible width, not the hidden scroll bar
+                var size = TextRenderer.MeasureText(g, marker.Text, listFont, Size.Empty, TextFormatFlags.NoPadding);
+                int textLeft = row.Left + (row.Width - size.Width) / 2, gap = 4;
+                int y = row.Top + row.Height / 2;
+                using (var pen = new Pen(Heading))
+                {
+                    g.DrawLine(pen, row.Left + 3, y, textLeft - gap, y);
+                    g.DrawLine(pen, textLeft + size.Width + gap, y, row.Right - 3, y);
+                }
+                TextRenderer.DrawText(g, marker.Text, listFont, new Rectangle(textLeft, row.Top, size.Width + 2, row.Height), Heading,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            }
+            finally { g.Restore(state); }
         }
 
         /// <summary>An On/Off row in vatSys's toggle-button style.</summary>
@@ -597,6 +642,8 @@ namespace AFVReplay.UI
             AddToggle(media, "Pause Media", s.PauseMedia, v => s.PauseMedia = v);
             AddSlider(media, "Resume Media", 1, ReplaySettings.ResumeNever, s.MediaResumeSeconds,
                 v => v >= ReplaySettings.ResumeNever ? "Never" : v + " s", v => s.MediaResumeSeconds = v);
+            AddToggle(media, "Duck Discord", s.DuckDiscord, v => s.DuckDiscord = v);
+            AddSlider(media, "Duck By", 10, 100, s.DuckPercent, v => v + "%", v => s.DuckPercent = v, step: 10);
 
             var alerts = SettingsPage();
             handoffToggle = AddToggle(alerts, "Handoff Alert", s.HandoffAlert, v => s.HandoffAlert = v);
@@ -635,6 +682,9 @@ namespace AFVReplay.UI
         }
 
         internal CheckBox HandoffToggle => handoffToggle;
+
+        /// <summary>Previews only: status lines to show instead of the live ones.</summary>
+        internal string StatusOverride { get; set; }
 
         private TableLayoutPanel[] settingsPages;
         private CheckBox[] settingsTabs;
@@ -758,6 +808,7 @@ namespace AFVReplay.UI
                 plugin.Store.Changed -= Changed;
                 plugin.SettingsChanged -= SettingsChangedElsewhere;
                 plugin.CoordStore.Changed -= Changed;
+                plugin.Afk.Changed -= Changed;
                 MMI.SelectedTrackChanged -= Changed;
                 MMI.SelectedGroundTrackChanged -= Changed;
                 listBold.Dispose();

@@ -90,9 +90,6 @@ namespace AFVReplay.Tests
                 plugin.Settings.HandoffAlert = true; injector.Sync(); Pump(15);
                 Console.WriteLine($"handoff button: visible {injector.HandoffButton.Visible}, bounds {injector.HandoffButton.Bounds}");
                 Capture(vscs, outPrefix + "-1b-handoff-on.png");
-                plugin.Afk.Set(true); injector.Sync(); Pump(15);
-                Capture(vscs, outPrefix + "-1c-afk-on.png");
-                plugin.Afk.Set(false);
                 plugin.Settings.HandoffAlert = false; injector.Sync(); Pump(15);
                 vscs.Height = 200; Pump(10); // try to make it shorter than the minimum
                 Console.WriteLine($"after shrinking: {vscs.Height}");
@@ -100,6 +97,13 @@ namespace AFVReplay.Tests
                 if (injector.LastError != null) Console.WriteLine("VSCS page error: " + injector.LastError);
                 Console.WriteLine($"page open: {injector.PageOpen}, vatSys page underneath: {VatSysBridge.VscsPageName(VatSysBridge.VscsPanel)}");
                 Capture(vscs, outPrefix + "-3-page.png");
+                // Away from 145 s ago to 60 s ago: the calls 75-140 s ago came in while away.
+                plugin.Afk.RecordPeriod(new AfkPeriod(now.AddSeconds(-145), now.AddSeconds(-60)));
+                injector.Page.RefreshView(); Pump(15);
+                Capture(vscs, outPrefix + "-3b-afk-markers.png");
+                plugin.Afk.Set(true); injector.Page.RefreshView(); Pump(15);
+                Capture(vscs, outPrefix + "-3c-afk-on.png");
+                plugin.Afk.Set(false); injector.Page.RefreshView();
                 injector.Page.Playlist.Older(null); injector.Page.Playlist.Older(null); injector.Page.Playlist.Older(null);
                 { var buf = new float[48000]; plugin.Player.Read(buf, 0, buf.Length); } // 1 s into the call
                 injector.Page.RefreshView(); Pump(15);
@@ -109,6 +113,12 @@ namespace AFVReplay.Tests
                 Capture(vscs, outPrefix + "-5-settings.png");
                 injector.Page.ShowSettingsPage(1); Pump(15);
                 Capture(vscs, outPrefix + "-5b-settings-media.png");
+                // Busy live status, as seen at the VSCS's narrowest: each fact on its own line, long ones wrapped.
+                injector.Page.StatusOverride = "Listening: 22 receivers" + Environment.NewLine + "Your Tx: 62/62" + Environment.NewLine
+                    + "Coord: 12 heard, 11 you, 1 dup, 1 silent" + Environment.NewLine + "Lines: ML-BIK_CTR hotline open, GIG_GND coldline ringing";
+                injector.Page.RefreshView(); Pump(15);
+                Capture(vscs, outPrefix + "-5d-settings-media-busy.png");
+                injector.Page.StatusOverride = null;
                 injector.Page.ShowSettingsPage(2); Pump(15);
                 Capture(vscs, outPrefix + "-5c-settings-alerts.png");
                 injector.Page.ShowSettingsPage(0);

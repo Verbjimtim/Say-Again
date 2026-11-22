@@ -39,6 +39,12 @@ namespace AFVReplay
         /// <summary>The resume delay, or null for never.</summary>
         public TimeSpan? MediaResumeDelay => MediaResumeSeconds >= ResumeNever ? (TimeSpan?)null : TimeSpan.FromSeconds(MediaResumeSeconds);
 
+        /// <summary>Lower Discord's volume while the radio is busy (the same as Pause Media). Off by default.</summary>
+        public bool DuckDiscord { get; set; }
+
+        /// <summary>How much to lower Discord by: 10-100 percent, in tens (100 = silent).</summary>
+        public int DuckPercent { get; set; } = 50;
+
         /// <summary>Handoff Alert: tones for a handoff to you, your handoff accepted, and your handoff refused. Off by default.</summary>
         public bool HandoffAlert { get; set; }
 
@@ -68,6 +74,7 @@ namespace AFVReplay
             CoordRetentionMinutes = Math.Max(1, Math.Min(10, CoordRetentionMinutes));
             MediaResumeSeconds = Math.Max(1, Math.Min(ResumeNever, MediaResumeSeconds));
             HandoffRepeatSeconds = Math.Max(RepeatOff, Math.Min(10, HandoffRepeatSeconds));
+            DuckPercent = Math.Max(10, Math.Min(100, (int)Math.Round(DuckPercent / 10.0, MidpointRounding.AwayFromZero) * 10));
             ReplayBinding = ReplayBinding ?? "";
             CoordReplayBinding = CoordReplayBinding ?? "";
         }

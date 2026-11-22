@@ -66,11 +66,14 @@ namespace AFVReplay.Tests
             Run(nameof(SilentLineCallsLogged), SilentLineCallsLogged);
             Run(nameof(EndToEnd_RealVatSysMicInputs), EndToEnd_RealVatSysMicInputs);
             Run(nameof(MediaPausesWhileRadioBusy), MediaPausesWhileRadioBusy);
+            Run(nameof(DuckTests.DiscordDucksWhileRadioBusy), DuckTests.DiscordDucksWhileRadioBusy);
+            Run(nameof(DuckTests.DuckSettings), DuckTests.DuckSettings);
             Run(nameof(HandoffTests.HandoffTrackerFollowsHandoffs), HandoffTests.HandoffTrackerFollowsHandoffs);
             Run(nameof(HandoffTests.HandoffMonitorPlaysTones), HandoffTests.HandoffMonitorPlaysTones);
             Run(nameof(HandoffTests.HandoffTonesPlayThroughVatSys), HandoffTests.HandoffTonesPlayThroughVatSys);
             Run(nameof(HandoffTests.HandoffSettings), HandoffTests.HandoffSettings);
             Run(nameof(HandoffTests.AfkHoldsCallsAndRequestsBreak), HandoffTests.AfkHoldsCallsAndRequestsBreak);
+            Run(nameof(HandoffTests.AfkMarkersInTheList), HandoffTests.AfkMarkersInTheList);
 
             Console.WriteLine();
             Console.WriteLine($"{passes} passed, {failures} failed");

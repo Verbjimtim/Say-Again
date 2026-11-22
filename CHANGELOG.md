@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.1
+
+- The **AFK** button has moved to the Say Again page, in the space under ▼ (it was on the VSCS Setup page).
+- AFK marks the Say Again list: a thin line labelled **Away from Keyboard 0402Z** where AFK was turned on and **Back at Keyboard 0431Z** where it was turned off (UTC), so you can see which calls came in while you were away. The lines can't be selected, and ▲/▼ and the replay keys step straight past them. A line shows only with a call above and below it, so it goes once the calls next to it expire.
+- **Duck Discord** (Settings → Media, off by default): lowers Discord's volume while the radio is busy, the same times Pause Media pauses (receiving, transmitting, a hotline/coldline open, a replay or a handoff tone playing). **Duck By** sets how much: 10-100% in tens (50% by default; 100% silences it). Discord comes back after the **Resume Media** delay, or 2 seconds when that's set to Never. It works on Discord, Discord PTB and Canary through the Windows volume mixer, and puts the volume back when vatSys closes.
+- The status lines under Settings now show one fact per line (receivers, your Tx, coord, open lines) and wrap instead of running off the right edge of the VSCS.
+
 ## v0.2.0
 
 - **AFK** button on the VSCS Setup page, right of Handoff Alert. While it's on:

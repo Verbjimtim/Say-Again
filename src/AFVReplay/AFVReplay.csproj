@@ -6,7 +6,7 @@
     <AssemblyName>AFVReplay</AssemblyName>
     <RootNamespace>AFVReplay</RootNamespace>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Product>Say Again</Product>
     <Description>vatSys plugin: replay recent AFV frequency calls and hotline/coldline coord from memory.</Description>
     <Authors>Verbjimtim</Authors>
@@ -39,6 +39,7 @@
     <Reference Include="GeoVR.Client"><HintPath>$(VatSysBin)\GeoVR.Client.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="GeoVR.Shared"><HintPath>$(VatSysBin)\GeoVR.Shared.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="NAudio.Core"><HintPath>$(VatSysBin)\NAudio.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NAudio.Wasapi"><HintPath>$(VatSysBin)\NAudio.Wasapi.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Concentus"><HintPath>$(VatSysBin)\Concentus.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="MumbleSharp"><HintPath>$(VatSysBin)\MumbleSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="SharpDX"><HintPath>$(VatSysBin)\SharpDX.dll</HintPath><Private>false</Private></Reference>

@@ -33,6 +33,7 @@ namespace AFVReplay
         private MicHook micHook;
         private WindowsMedia media;
         private MediaPauser mediaPauser;
+        private DiscordDucker ducker;
         private HandoffMonitor handoff;
         private Timer afkTimer;
         private string disabledReason;
@@ -66,25 +67,27 @@ namespace AFVReplay
                 if (coordHook == null || !coordHook.IsHooked) return "Coord: waiting";
                 var (remote, own, dropped) = coordConversation.Counts;
                 var lines = VatSysBridge.GetActiveLines();
-                string lineText = lines.Count == 0 ? "no lines open"
+                string lineText = lines.Count == 0 ? "none open"
                     : string.Join(", ", lines.Select(l => $"{l.Callsign ?? "?"} {l.Type.ToLowerInvariant()} {l.State.ToLowerInvariant()}"));
                 int silent = coordConversation.SilentCalls;
-                return $"Coord: {remote} heard, {own} you" + (dropped > 0 ? $", {dropped} dup" : "") + (silent > 0 ? $", {silent} silent" : "") + "; " + lineText;
+                // One fact per line, so it fits the VSCS's width (long ones wrap rather than being cut off).
+                return $"Coord: {remote} heard, {own} you" + (dropped > 0 ? $", {dropped} dup" : "") + (silent > 0 ? $", {silent} silent" : "")
+                       + Environment.NewLine + "Lines: " + lineText;
             }
         }
 
         internal string StatusText =>
             disabledReason != null ? "Disabled: " + disabledReason
-            : (hook != null && hook.IsHooked ? $"Listening on {hook.TapCount} receiver(s)" : "Waiting for AFV to connect") + "; " + OwnTxText;
+            : (hook != null && hook.IsHooked ? $"Listening: {hook.TapCount} receiver" + (hook.TapCount == 1 ? "" : "s") : "Waiting for AFV") + Environment.NewLine + OwnTxText;
 
         /// <summary>Your own transmissions: how many PTT presses were kept, and why any weren't.</summary>
         internal string OwnTxText
         {
             get
             {
-                if (ownTx == null) return "your Tx: unavailable";
-                if (micHook == null || !micHook.AfvHooked) return "your Tx: mic not hooked";
-                return $"your Tx: {ownTx.Recorded}/{ownTx.Presses}" + (ownTx.NoTransmitFrequency > 0 ? $", {ownTx.NoTransmitFrequency} no tx freq" : "");
+                if (ownTx == null) return "Your Tx: unavailable";
+                if (micHook == null || !micHook.AfvHooked) return "Your Tx: mic not hooked";
+                return $"Your Tx: {ownTx.Recorded}/{ownTx.Presses}" + (ownTx.NoTransmitFrequency > 0 ? $", {ownTx.NoTransmitFrequency} no tx freq" : "");
             }
         }
 
@@ -250,6 +253,16 @@ namespace AFVReplay
                 mediaPauser = null;
                 Diag.Warn("Pause Media unavailable: " + ex.GetType().Name);
             }
+            try
+            {
+                ducker = new DiscordDucker(new WindowsAppVolume(), () => Settings.DuckDiscord, RadioBusy, () => Settings.DuckPercent, () => Settings.MediaResumeDelay);
+                ducker.Start(TimeSpan.FromMilliseconds(100));
+            }
+            catch (Exception ex)
+            {
+                ducker = null;
+                Diag.UserError("Say Again: Duck Discord is unavailable. Everything else still works.", ex);
+            }
         }
 
         /// <summary>Handoff Alert (Matt's plugin, now part of Say Again): tones for handoffs to and from you.</summary>
@@ -340,6 +353,7 @@ namespace AFVReplay
         private void Shutdown()
         {
             try { mediaPauser?.Dispose(); media?.Flush(TimeSpan.FromSeconds(2)); } catch { } // resume anything paused
+            try { ducker?.Dispose(); } catch { } // Discord's volume back (Windows would otherwise keep it low)
             try { handoff?.Dispose(); } catch { }
             try { afkTimer?.Dispose(); } catch { }
             try { poller?.Dispose(); } catch { }

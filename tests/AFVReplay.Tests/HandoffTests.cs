@@ -211,8 +211,37 @@ namespace AFVReplay.Tests
             afk.Set(false);
             Assert(clicks == 4, "nothing to turn off");
 
-            Assert(UI.VscsInjector.AfkButtonBounds(2) == new System.Drawing.Rectangle(3 + 7 * 86 - 1, 3 + 66 - 1, 82, 62), "right of Handoff Alert");
             Assert(new ReplayPlugin(new ReplaySettings()).Afk.On == false, "AFK starts off");
+        }
+
+        internal static void AfkMarkersInTheList()
+        {
+            var t = new DateTime(2026, 11, 22, 4, 31, 0, DateTimeKind.Utc);
+            long id = 0;
+            Clip Call(double minsAgo) => new Clip(++id, t.AddMinutes(-minsAgo).AddSeconds(-3), t.AddMinutes(-minsAgo), 0, "Hotline", new[] { "GIG_GND" }, false, new List<byte[]>(), 0, isSilent: true);
+            string Rows(IReadOnlyList<Clip> calls, params AfkPeriod[] periods) =>
+                string.Join(" | ", AfkMarker.Place(calls, periods).Select(r => r is AfkMarker m ? m.Text : ((Clip)r).Id.ToString()));
+            var calls = new[] { Call(1), Call(8), Call(21), Call(28), Call(32) }; // ids 1-5, newest first
+            var away = new AfkPeriod(t.AddMinutes(-29), t.AddMinutes(-5));
+
+            Assert(Rows(calls) == "1 | 2 | 3 | 4 | 5", "no AFK: just the calls");
+            Assert(Rows(calls, away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4 | Away from Keyboard 0402Z | 5", "both lines: " + Rows(calls, away));
+            Assert(Rows(calls.Take(4).ToList(), away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4", "the call before AFK expired: Away goes");
+            Assert(Rows(calls.Skip(1).ToList(), away) == "2 | 3 | 4 | Away from Keyboard 0402Z | 5", "nothing after Back yet: Back doesn't show");
+            Assert(Rows(calls, new AfkPeriod(t.AddMinutes(-29), null)) == "1 | 2 | 3 | 4 | Away from Keyboard 0402Z | 5", "still AFK: Away only");
+            Assert(Rows(calls, new AfkPeriod(t.AddMinutes(-15), t.AddMinutes(-10))) == "1 | 2 | Back at Keyboard 0421Z | Away from Keyboard 0416Z | 3 | 4 | 5",
+                "away with no calls: the two lines together");
+            Assert(Rows(new Clip[0], away) == "" && Rows(new[] { calls[0] }, away) == "1", "never on its own");
+            Assert(new AfkMarker(true, t).Equals(new AfkMarker(true, t)) && !new AfkMarker(true, t).Equals(new AfkMarker(false, t)), "same marker each refresh");
+
+            // AFK records when it was on.
+            var now = t;
+            var afk = new AfkMode(_ => { }, () => false, () => false, () => { }, () => now);
+            afk.Set(true); now = now.AddMinutes(20); afk.Set(false);
+            var p = afk.Periods.Single();
+            Assert(p.StartUtc == t && p.EndUtc == t.AddMinutes(20), "period recorded");
+            now = now.AddMinutes(30); afk.Set(true);
+            Assert(afk.Periods.Count == 1 && afk.Periods[0].EndUtc == null, "old periods forgotten");
         }
     }
 }

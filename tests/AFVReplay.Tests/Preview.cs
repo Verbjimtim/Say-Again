@@ -114,7 +114,7 @@ namespace AFVReplay.Tests
                 injector.Page.ShowSettingsPage(1); Pump(15);
                 Capture(vscs, outPrefix + "-5b-settings-media.png");
                 // Busy live status, as seen at the VSCS's narrowest: each fact on its own line, long ones wrapped.
-                injector.Page.StatusOverride = "Listening: 22 receivers" + Environment.NewLine + "Your Tx: 62/62" + Environment.NewLine
+                injector.Page.StatusOverride = "Listening: 22 receivers" + Environment.NewLine + "TX/RX: 62/148" + Environment.NewLine
                     + "Coord: 12 heard, 11 you, 1 dup, 1 silent" + Environment.NewLine + "Lines: ML-BIK_CTR hotline open, GIG_GND coldline ringing";
                 injector.Page.RefreshView(); Pump(15);
                 Capture(vscs, outPrefix + "-5d-settings-media-busy.png");

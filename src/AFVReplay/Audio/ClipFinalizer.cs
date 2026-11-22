@@ -35,6 +35,13 @@ namespace AFVReplay.Audio
         public event EventHandler<Clip> ClipAdded;
 
         private int inFlight;
+        private int transmitted, received;
+
+        /// <summary>Your own transmissions stored since this started (vatSys start). Not reset by wipes.</summary>
+        public int Transmitted => Volatile.Read(ref transmitted);
+
+        /// <summary>Calls from others stored since this started; a better copy of the same call from another receiver isn't counted again.</summary>
+        public int Received => Volatile.Read(ref received);
 
         public void Enqueue(RawRecording rec)
         {
@@ -90,6 +97,7 @@ namespace AFVReplay.Audio
 
             // Collapse duplicates of the same transmission picked up by another receiver.
             // (Coord calls come from one stream per controller, so they never have duplicates.)
+            bool replacing = false;
             if (rec.FrequencyHz != 0 && !rec.IsOwn)
             foreach (var existing in store.Snapshot())
             {
@@ -100,6 +108,7 @@ namespace AFVReplay.Audio
                 if (existingRms >= rms) return;
                 store.Remove(existing);
                 rmsById.Remove(existing.Id);
+                replacing = true;
                 break;
             }
 
@@ -113,6 +122,8 @@ namespace AFVReplay.Audio
             clip.SpeechLevel = AudioLevel.Speech(rec.Pcm, rec.Length);
             rmsById[clip.Id] = rms;
             store.Add(clip);
+            if (rec.IsOwn) Interlocked.Increment(ref transmitted);
+            else if (!replacing) Interlocked.Increment(ref received);
             foreach (var id in rmsById.Keys.ToList())
             {
                 if (!store.Contains(id)) rmsById.Remove(id);

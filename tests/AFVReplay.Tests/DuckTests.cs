@@ -43,7 +43,7 @@ namespace AFVReplay.Tests
             Assert(app.Calls.Count == 0, "quiet radio: Discord left alone");
             busy = true; Step(0.1);
             Assert(d.Ducked && Math.Abs(app.Volume - 0.5f) < 0.001, "lowered by 50%: " + app.Volume);
-            Step(3);
+            Step(6); // rescans every 5 s
             Assert(app.Calls.Count >= 2 && app.Calls.TrueForAll(c => c == "duck 0.5"), "re-checked for new Discord audio while ducked: " + string.Join(",", app.Calls));
             busy = false; Step(1.5);
             busy = true; Step(1); // readback within the delay

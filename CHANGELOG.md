@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.2
+
+- Fixed: with **Duck Discord** on, Say Again held hundreds of Windows audio objects at a time and leaked memory while Discord was ducked. After a long session this can leave Windows audio stuck when vatSys closes (new sounds silent and the volume flyout frozen until vatSys has fully exited). Duck Discord now releases each audio object straight away, checks for new Discord audio every 5 s instead of every second, and never holds up vatSys closing by more than 1 second while putting Discord's volume back.
+- The second status line is now **TX/RX: 36/120**: your transmissions and the calls you've received since vatSys started (a call heard on several receivers counts once). It replaces "Your Tx: 36/36" (PTT presses recorded).
+
 ## v0.2.1
 
 - The **AFK** button has moved to the Say Again page, in the space under ▼ (it was on the VSCS Setup page).

@@ -78,18 +78,11 @@ namespace AFVReplay
 
         internal string StatusText =>
             disabledReason != null ? "Disabled: " + disabledReason
-            : (hook != null && hook.IsHooked ? $"Listening: {hook.TapCount} receiver" + (hook.TapCount == 1 ? "" : "s") : "Waiting for AFV") + Environment.NewLine + OwnTxText;
+            : (hook != null && hook.IsHooked ? $"Listening: {hook.TapCount} receiver" + (hook.TapCount == 1 ? "" : "s") : "Waiting for AFV") + Environment.NewLine + TxRxText;
 
-        /// <summary>Your own transmissions: how many PTT presses were kept, and why any weren't.</summary>
-        internal string OwnTxText
-        {
-            get
-            {
-                if (ownTx == null) return "Your Tx: unavailable";
-                if (micHook == null || !micHook.AfvHooked) return "Your Tx: mic not hooked";
-                return $"Your Tx: {ownTx.Recorded}/{ownTx.Presses}" + (ownTx.NoTransmitFrequency > 0 ? $", {ownTx.NoTransmitFrequency} no tx freq" : "");
-            }
-        }
+        /// <summary>Frequency calls kept since vatSys started: your transmissions / calls received.</summary>
+        internal string TxRxText =>
+            finalizer == null ? "TX/RX: unavailable" : $"TX/RX: {finalizer.Transmitted}/{finalizer.Received}";
 
         public ReplayPlugin()
         {

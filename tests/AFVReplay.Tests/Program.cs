@@ -20,7 +20,8 @@ namespace AFVReplay.Tests
             System.Windows.Forms.Application.SetUnhandledExceptionMode(System.Windows.Forms.UnhandledExceptionMode.CatchException);
             System.Windows.Forms.Application.ThreadException += (s, e) => Console.WriteLine("UI EXCEPTION: " + e.Exception);
             bool preview = args.Length >= 3 && (args[0] == "--preview" || args[0] == "--preview-vscs");
-            if (!preview && args.Length > 0) VatSysBin = args[0];
+            bool soak = args.Length >= 2 && args[0] == "--soak-duck";
+            if (!preview && !soak && args.Length > 0) VatSysBin = args[0];
             AppDomain.CurrentDomain.AssemblyResolve += (s, e) =>
             {
                 var name = new AssemblyName(e.Name).Name;
@@ -31,6 +32,7 @@ namespace AFVReplay.Tests
                 }
                 return null;
             };
+            if (soak) return DuckSoak.Run(int.Parse(args[1]));
             if (preview && args[0] == "--preview-vscs") return RunPreviewVscs(args[1], args[2]);
             return preview ? RunPreview(args[1], args[2]) : Run();
         }

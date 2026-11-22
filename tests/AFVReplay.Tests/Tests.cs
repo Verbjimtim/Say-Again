@@ -1001,10 +1001,25 @@ namespace AFVReplay.Tests
                 fin.Process(done[3]);
                 var rx = new RawRecording { Pcm = new short[48000], Length = 48000, StartUtc = line.Now, EndUtc = line.Now.AddSeconds(1), FrequencyHz = 124_400_000, Callsigns = new List<string> { "QFA1" } };
                 fin.Process(rx);
+                Assert(fin.Transmitted == 1 && fin.Received == 0, $"TX/RX counts: own counted, silent not: {fin.Transmitted}/{fin.Received}");
             }
             Assert(store.Snapshot().Count == 1 && store.Snapshot()[0].IsOwn, "quiet own transmission stored, silent received clip dropped");
             Assert(rec.Recorded == 4, $"status counts: {rec.Recorded} recorded");
             Assert(observer.NoTransmitFrequency == 1 && observer.Recorded == 0, "status counts: observer press has no tx freq");
+
+            using (var fin = new ClipFinalizer(new ClipStore(), _ => "124.400"))
+            {
+                // TX/RX: a received call counts once, even when a louder copy from another receiver replaces it.
+                short[] Loud(short amp) { var pcm = new short[48000]; for (int i = 0; i < pcm.Length; i++) pcm[i] = (short)(amp * Math.Sin(i * 2 * Math.PI * 300 / 48000)); return pcm; }
+                var t1 = line.Now.AddSeconds(5);
+                RawRecording Rx(short amp, string cs, DateTime at) => new RawRecording { Pcm = Loud(amp), Length = 48000, StartUtc = at, EndUtc = at.AddSeconds(1), FrequencyHz = 124_400_000, Callsigns = new List<string> { cs } };
+                fin.Process(Rx(3000, "QFA1", t1));
+                fin.Process(Rx(6000, "QFA1", t1)); // same call, louder receiver: replaces it
+                fin.Process(Rx(2000, "QFA1", t1)); // same call, quieter: dropped
+                Assert(fin.Received == 1, "duplicate copies of one call count once: " + fin.Received);
+                fin.Process(Rx(3000, "VOZ2", t1.AddSeconds(3)));
+                Assert(fin.Transmitted == 0 && fin.Received == 2, $"TX/RX counts: {fin.Transmitted}/{fin.Received}");
+            }
         }
 
         private static Clip FreqClip(string callsign, DateTime start, double secs, bool own = false, double level = 0.14) =>

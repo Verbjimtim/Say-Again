@@ -595,6 +595,8 @@ namespace AFVReplay.Tests
             Assert(AFVReplay.UI.VscsLayout.MenuColumn(5, 262) == 2, "5 frequencies take two columns at default height");
             Assert(AFVReplay.UI.VscsLayout.MenuColumn(5, 328) == 1, "5 frequencies fit one column when taller");
             Assert(AFVReplay.UI.VscsLayout.Cell(1, 4) == new System.Drawing.Rectangle(89, 267, 80, 60), "Say Again under Group " + AFVReplay.UI.VscsLayout.Cell(1, 4));
+            Assert(AFVReplay.UI.VscsInjector.SayAgainButtonBounds(1) == new System.Drawing.Rectangle(88, 266, 82, 62),
+                   "Say Again matches the VSCS menu button size");
             Assert(AFVReplay.UI.VscsInjector.PanelHeightNeeded == 330 && AFVReplay.UI.VscsLayout.Rows(AFVReplay.UI.VscsInjector.PanelHeightNeeded) == 5,
                    "minimum panel height fits Say Again under Group: " + AFVReplay.UI.VscsInjector.PanelHeightNeeded);
 
@@ -1587,6 +1589,9 @@ namespace AFVReplay.Tests
                 page.Visible = true;
                 page.Bounds = new System.Drawing.Rectangle(172, 0, 430, 330);
                 Pump();
+                var pageButtons = page.Controls.OfType<AFVReplay.UI.VscsButton>().ToArray();
+                Assert(pageButtons.Length == 5 && pageButtons.All(b => b.Width == 82 && b.Height == 62),
+                       "Say Again page buttons match the native VSCS button size");
                 page.RefreshView(); Pump();
                 var list = FindControl<System.Windows.Forms.ListView>(page);
                 int top0 = list.GetItemRect(0).Top, height = list.ClientSize.Height;

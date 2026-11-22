@@ -162,11 +162,11 @@ namespace AFVReplay.UI
         {
             base.OnLayout(e);
             if (progress == null) return; // still being built
-            settingsButton.Bounds = new Rectangle(0, VscsLayout.RowY(0), W, H);
-            newer.Bounds = new Rectangle(0, VscsLayout.RowY(1), W, H);
-            playPause.Bounds = new Rectangle(0, VscsLayout.RowY(2), W, H);
-            older.Bounds = new Rectangle(0, VscsLayout.RowY(3), W, H);
-            afkButton.Bounds = new Rectangle(0, VscsLayout.RowY(4), W, H);
+            settingsButton.Bounds = PageButtonBounds(0);
+            newer.Bounds = PageButtonBounds(1);
+            playPause.Bounds = PageButtonBounds(2);
+            older.Bounds = PageButtonBounds(3);
+            afkButton.Bounds = PageButtonBounds(4);
 
             int x = W + 2 * P;
             int width = Math.Max(80, ClientSize.Width - x - P);
@@ -193,6 +193,9 @@ namespace AFVReplay.UI
             listScroll.Bounds = new Rectangle(listArea.Right + 3, listArea.Top, scrollWidth, listArea.Height);
             progress.Bounds = new Rectangle(area.X, area.Bottom - bar, area.Width, bar);
         }
+
+        private static Rectangle PageButtonBounds(int row) =>
+            new Rectangle(0, VscsLayout.RowY(row) - 1, W + 2, H + 2);
 
         private void FitColumns()
         {

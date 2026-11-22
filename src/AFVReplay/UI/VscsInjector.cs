@@ -46,6 +46,8 @@ namespace AFVReplay.UI
         private readonly Timer timer = new Timer { Interval = 200 };
         private Control panel;
         private VscsButton menuButton;
+        private VscsButton handoffButton;
+        private VscsButton afkButton;
         private Form sizedWindow;
         private Size? originalMinimum;
         private SayAgainPage page;
@@ -141,6 +143,11 @@ namespace AFVReplay.UI
                 ShowSayAgain(menuButton);
                 menuButton.BringToFront();
 
+                // Handoff Alert's on/off button on vatSys's Setup page, where Matt's plugin had it.
+                handoffButton.Bounds = HandoffButtonBounds(menuCol);
+                afkButton.Bounds = AfkButtonBounds(menuCol);
+                ShowHandoffButton(bringToFront: true);
+
                 page.Visible = pageOpen;
                 if (pageOpen)
                 {
@@ -167,6 +174,13 @@ namespace AFVReplay.UI
             menuButton.Pressed += (s, e) => OpenPage();
             menuButton.RightPressed += (s, e) => plugin.StopAll(); // dismiss a replay
             panel.Controls.Add(menuButton);
+            handoffButton = new VscsButton { Text = "Handoff Alert", Visible = false };
+            handoffButton.Pressed += (s, e) => { plugin.ToggleHandoffAlert(); ShowHandoffButton(); };
+            panel.Controls.Add(handoffButton);
+            afkButton = new VscsButton { Text = "AFK", Visible = false };
+            afkButton.Pressed += (s, e) => { plugin.Afk.Toggle(); ShowHandoffButton(); };
+            panel.Controls.Add(afkButton);
+            panel.Invalidated += PanelInvalidated; // shows/hides it as soon as vatSys changes page
             page = new SayAgainPage(plugin) { Visible = false };
             panel.Controls.Add(page);
             // No click handling on the VSCS itself: blank space does nothing. The page closes only when
@@ -176,15 +190,58 @@ namespace AFVReplay.UI
         private void Detach()
         {
             RestoreMinimumHeight();
-            foreach (var c in new Control[] { menuButton, page })
+            if (panel != null && !panel.IsDisposed) panel.Invalidated -= PanelInvalidated;
+            foreach (var c in new Control[] { menuButton, handoffButton, afkButton, page })
             {
                 if (c == null || c.IsDisposed) continue;
                 try { if (c.InvokeRequired) c.BeginInvoke((MethodInvoker)c.Dispose); else c.Dispose(); } catch { }
             }
             menuButton = null;
+            handoffButton = null;
+            afkButton = null;
             page = null;
             panel = null;
             pageOpen = false;
+        }
+
+        /// <summary>
+        /// Second row of the Setup page, under Mute Input (the fourth column after the menu column), one pixel
+        /// bigger all round: the same place and size as Matt's Handoff Alert plugin.
+        /// </summary>
+        internal static Rectangle HandoffButtonBounds(int menuColumn) =>
+            new Rectangle(VscsLayout.ColumnX(menuColumn + 4) - 1, VscsLayout.RowY(1) - 1, VscsLayout.ButtonWidth + 2, VscsLayout.ButtonHeight + 2);
+
+        /// <summary>AFK: the next cell right of Handoff Alert, the same size.</summary>
+        internal static Rectangle AfkButtonBounds(int menuColumn)
+        {
+            var r = HandoffButtonBounds(menuColumn);
+            r.X = VscsLayout.ColumnX(menuColumn + 5) - 1;
+            return r;
+        }
+
+        internal VscsButton HandoffButton => handoffButton;
+        internal VscsButton AfkButton => afkButton;
+
+        private void PanelInvalidated(object sender, InvalidateEventArgs e)
+        {
+            try { ShowHandoffButton(); } catch { }
+        }
+
+        /// <summary>Handoff Alert and AFK: only on vatSys's Setup page; pressed while on.</summary>
+        // Not brought to front from Invalidated: changing the order repaints the panel, which would loop.
+        private void ShowHandoffButton(bool bringToFront = false)
+        {
+            var b = handoffButton;
+            if (b == null || b.IsDisposed || panel == null || panel.IsDisposed) return;
+            bool visible = !pageOpen && VatSysBridge.IsVscsSetupPage(panel);
+            b.Set("Handoff Alert", "", VscsButton.Faces.Normal, plugin.Settings.HandoffAlert);
+            if (b.Visible != visible) b.Visible = visible;
+            if (visible && bringToFront) b.BringToFront();
+            var a = afkButton;
+            if (a == null || a.IsDisposed) return;
+            a.Set("AFK", "", VscsButton.Faces.Normal, plugin.Afk.On);
+            if (a.Visible != visible) a.Visible = visible;
+            if (visible && bringToFront) a.BringToFront();
         }
 
         /// <summary>Rows the VSCS panel needs so Say Again fits under Group.</summary>

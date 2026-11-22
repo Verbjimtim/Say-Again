@@ -11,27 +11,31 @@ namespace AFVReplay.Audio
 
         /// <summary>Plays again what <see cref="PausePlaying"/> paused, if it's still paused.</summary>
         void ResumePaused();
+
+        /// <summary>Forgets what was paused, leaving it paused.</summary>
+        void Forget();
     }
 
     /// <summary>
     /// "Pause Media": while the radio is busy (receiving, transmitting or a hotline/coldline open),
-    /// other apps' media is paused. It resumes once the radio has been quiet for <see cref="ResumeDelay"/>,
-    /// so it doesn't flicker on and off between a call and its readback.
+    /// other apps' media is paused. It resumes once the radio has been quiet for the resume delay
+    /// (1-5 s, so it doesn't flicker on and off between a call and its readback), or with no delay
+    /// ("never") it stays paused for you to resume yourself.
     /// </summary>
     internal sealed class MediaPauser : IDisposable
     {
-        public static readonly TimeSpan ResumeDelay = TimeSpan.FromSeconds(2);
-
         private readonly IMediaControl media;
         private readonly Func<bool> enabled;
         private readonly Func<bool> busy;
+        private readonly Func<TimeSpan?> resumeDelay;
         private readonly Func<DateTime> clock;
         private readonly object sync = new object();
         private Timer timer;
         private DateTime lastBusyUtc;
 
-        public MediaPauser(IMediaControl media, Func<bool> enabled, Func<bool> busy, Func<DateTime> clock = null)
+        public MediaPauser(IMediaControl media, Func<bool> enabled, Func<bool> busy, Func<TimeSpan?> resumeDelay, Func<DateTime> clock = null)
         {
+            this.resumeDelay = resumeDelay;
             this.media = media;
             this.enabled = enabled;
             this.busy = busy;
@@ -66,10 +70,20 @@ namespace AFVReplay.Audio
                         media.PausePlaying();
                     }
                 }
-                else if (Paused && (!on || now - lastBusyUtc >= ResumeDelay))
+                else if (Paused)
                 {
-                    Paused = false;
-                    media.ResumePaused();
+                    var delay = resumeDelay();
+                    if (!on || (delay.HasValue && now - lastBusyUtc >= delay.Value))
+                    {
+                        Paused = false;
+                        media.ResumePaused();
+                    }
+                    else if (!delay.HasValue)
+                    {
+                        // Never resume: leave it paused, ready to pause whatever you play next.
+                        Paused = false;
+                        media.Forget();
+                    }
                 }
             }
             finally

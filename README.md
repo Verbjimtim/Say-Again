@@ -24,17 +24,24 @@ Keeps the last few minutes of received AFV transmissions, and of hotline/coldlin
   - **Buttons:** Settings, ▲ (next), ▶ (play/pause, underlined), ▼ (previous). Next moves up the list (newer), Previous down it (older), in table order (frequency and coord together, newest first). While the page is open only Say Again shows pressed (vatSys sits on its Monitor page underneath). While a call plays, Play becomes a status button (in the VSCS receiving colour, like a frequency button receiving, with who and where, e.g. `QFA123` / `118.500`); click to pause, right click to stop. A call that finishes just stops.
   - **Call-outs:** **Last Tx** (`Callsign - FREQ (X mins ago)`, the most recent frequency call) and **Selected** (`callsign, name` of the pilot selected in vatSys). While a pilot is selected, that aircraft's calls are highlighted in the list (rows tinted with vatSys's Highlighted Text colour; turn it off with **Highlight Selected Pilot** in Settings). Nothing is hidden, and ▲/▼ still step through every call.
   - **List:** Ago (whole minutes), Freq, Callsign, Length, with a **progress bar** under it showing how far into the replay you are.
-  - **Settings** (hidden until the Settings button is pressed, fits without scrolling): Keep Calls, Keep Coord, Volume, Speed, Stop On New Call, Highlight Selected Pilot, Pause Media, and the listening status.
-  - **Pause Media** (off by default): while the radio is busy (receiving, transmitting, or a hotline/coldline open), other apps' media is paused through Windows' media controls (Spotify, browser tabs, Media Player and anything else shown in the volume flyout's media panel). It resumes 2 seconds after the radio goes quiet. Only media that was playing is paused and resumed. Apps that don't use Windows' media controls aren't affected.
+  - **Settings** (hidden until the Settings button is pressed, fits without scrolling), in three pages: **Replay** (Keep Calls, Keep Coord, Volume, Speed, Stop On New Call, Highlight Selected Pilot), **Media** (Pause Media, Resume Media) and **Alerts** (Handoff Alert, Repeat). The listening status is shown under all of them.
+  - **Pause Media** (off by default): while the radio is busy (receiving, transmitting, or a hotline/coldline open), a Say Again replay playing, or a handoff tone playing, other apps' media is paused through Windows' media controls (Spotify, browser tabs, Media Player and anything else shown in the volume flyout's media panel). It resumes after the radio has been quiet for the **Resume Media** time: 1-5 seconds (2 by default), or **Never**, which leaves it paused for you to resume yourself. Only media that was playing is paused and resumed. Apps that don't use Windows' media controls aren't affected.
   - **While a call replays and the page isn't open**, Say Again itself shows who and where in the VSCS receiving colour; right click stops it. Only one replay plays at a time.
 - **Replay speed** 1.00x–2.00x (pitch unchanged), set in the Say Again window.
 - Replay stops automatically when you key PTT, and (optionally, on by default) when a new call comes in.
+- **Handoff Alert** (off by default; from Matt's Handoff Alert plugin, now part of Say Again): turn it on with the **Handoff Alert** button on the VSCS Setup page or in Settings → Alerts.
+  - A handoff to you plays a rising two-tone, repeated every **Repeat** seconds (3-10, 5 by default, or Off) until you accept, refuse or it's withdrawn.
+  - Your handoff accepted: a falling two-tone. Refused: a flat tone (from vatSys's "Handoff refused by ..." message).
+  - A plan you were handing off that disappears (pilot disconnected, plan dropped) plays nothing.
+  - Tones play through vatSys's alert output at vatSys's alert volume, or Windows' default output if that isn't available. They're generated in memory.
+  - If the separate Handoff Alert plugin is still installed, Say Again says so once: remove `HandoffAlertPlugin.dll`, or you'll hear every tone twice.
+- **AFK** (VSCS Setup page, right of Handoff Alert): calls and coord made while it's on are kept until the usual keep time after you turn it off (older calls expire as normal; the 200-call cap and disconnect wipe still apply). It also turns on vatSys's Tools → Request Break (once you're connected as ATC) and turns it off with AFK; turning Request Break off yourself ends AFK. Always off when vatSys starts.
 
 ## Privacy
 
 - Audio is held **only in memory**, recorded at 8 kHz (radio bandwidth) and compressed with Opus (about 1 KB/s). It is never written to disk, logged, exported or copied anywhere.
 - Calls are wiped (overwritten with zeros) after the retention time (frequency 1–5 min, coord 1–10 min; both are hard limits), on AFV/VATSIM disconnect, and when vatSys closes.
-- The settings file (`%LOCALAPPDATA%\AFVReplay\settings.xml`) holds only the two key bindings, retention times, volume, speed and the stop option.
+- The settings file (`%LOCALAPPDATA%\AFVReplay\settings.xml`) holds only preferences: the two key bindings, retention times, volume, speed, and the on/off options and times (Stop On New, Highlight, Pause Media, Resume Media, Handoff Alert, Repeat).
 - Limitation: anything in a process's memory can be read by someone with a memory dump of their own PC. This design makes the data short-lived and unavailable through any normal means, which is as far as a plugin can go.
 
 ## How it works
@@ -80,7 +87,7 @@ dotnet build tests\AFVReplay.Tests -c Release
 .\tests\AFVReplay.Tests\bin\Release\net472\AFVReplay.Tests.exe
 ```
 
-The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipeline** with Opus packets at real AFV pacing. It covers: the bridge matching the installed vatSys, splitting, blips, stuck-mic splitting, two frequencies at once, duplicate-transceiver collapse, receivers being added/removed, unhook restoring AFV, live audio unchanged by the tap, replay level matching live, replay key repeating the newest call (own transmissions skipped), stop on new call, time-stretch length/pitch/level, replay speed, the VSCS grid placement, Say Again table-order playback (previous/next, pause/resume, progress), coord utterance cutting (noise, frequency loopback and blips ignored, line hang-up), the 10 min coord cap, one replay at a time, coord end to end through vatSys's real Mumble client objects (coord replay level matches live), expiry/wiping, Pause Media timing (pause once, hold through short gaps, resume after quiet or when switched off), settings, and reading vatSys's key-binding format.
+The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipeline** with Opus packets at real AFV pacing. It covers: the bridge matching the installed vatSys, splitting, blips, stuck-mic splitting, two frequencies at once, duplicate-transceiver collapse, receivers being added/removed, unhook restoring AFV, live audio unchanged by the tap, replay level matching live, replay key repeating the newest call (own transmissions skipped), stop on new call, time-stretch length/pitch/level, replay speed, the VSCS grid placement, Say Again table-order playback (previous/next, pause/resume, progress), coord utterance cutting (noise, frequency loopback and blips ignored, line hang-up), the 10 min coord cap, one replay at a time, coord end to end through vatSys's real Mumble client objects (coord replay level matches live), expiry/wiping, Pause Media timing (pause once, hold through short gaps, resume after quiet or when switched off), Handoff Alert (handoff in, repeats, accepted, withdrawn/refused, plans disappearing, switching on mid-handoff, refusal message, tones built in vatSys's own sound format, the Setup-page button's place), settings, and reading vatSys's key-binding format.
 
 **Not covered offline** (needs vatSys running): the VSCS button with real frequencies drawn beside it, how sped-up speech sounds, the Keyboard window row, DirectInput key polling, the menu/window, and real network audio.
 
@@ -93,7 +100,8 @@ The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipe
 5. Open a hotline or coldline and have the other controller talk. A "Coord" row should appear for each thing they say, and the Replay Coord key or the COORD button should replay it in your coord audio.
 6. Open Say Again (under Group). Step with Next/Previous, pause and resume, watch the progress bar; open Settings and try 1.25x and 1.5x speed. Switch page during a replay: Say Again shows who/where; right click stops.
 7. Key PTT during a replay; it should stop. Disconnect; the list should empty.
-8. Any problem shows in the vatSys error window under "Say Again".
+8. Settings → Alerts → Handoff Alert On (or the Handoff Alert button on the VSCS Setup page). Have a controller hand a track to you: rising tone, repeating until you accept. Hand one off: falling tone when accepted, flat tone if refused.
+9. Any problem shows in the vatSys error window under "Say Again".
 
 ## Layout
 
@@ -103,6 +111,7 @@ src/AFVReplay/
   ReplayController.cs      replay key: most recent call, press again to repeat
   ReplaySettings.cs        preferences only
   Audio/                   tap, recorder, finalizer (dedupe + Opus), store, player, hook
+  Handoff/                 Handoff Alert: tracker (the rules), monitor (vatSys side), tones
   Input/                   vatSys key-binding format, DirectInput poller
   UI/                      Keyboard window rows, VSCS Say Again button and page
   VatSys/VatSysBridge.cs   every vatSys/AFV internal in one place
@@ -111,4 +120,8 @@ tests/AFVReplay.Tests/     offline harness
 
 ## Privacy note (shown to users)
 
-Calls are kept in memory only and never saved. They are deleted after the retention times, on disconnect, and when vatSys closes. Your own voice is kept only while PTT is held or a line is open.
+Calls are kept in memory only and never saved. They are deleted after the retention times (counted from when you turn AFK off, for calls made while AFK), on disconnect, and when vatSys closes. Your own voice is kept only while PTT is held or a line is open.
+
+## Credits
+
+Handoff Alert is Matt's ([mattk04/vatsys-handoff-alert](https://github.com/mattk04/vatsys-handoff-alert)), merged into Say Again with his agreement.

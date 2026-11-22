@@ -87,6 +87,13 @@ namespace AFVReplay.Tests
                 injector.Sync(); Pump(15);
                 Console.WriteLine($"VSCS window height {before} -> {vscs.Height}, minimum {vscs.MinimumSize.Height}, panel {VatSysBridge.VscsPanel.Height}");
                 Capture(vscs, outPrefix + "-1-menu.png");
+                plugin.Settings.HandoffAlert = true; injector.Sync(); Pump(15);
+                Console.WriteLine($"handoff button: visible {injector.HandoffButton.Visible}, bounds {injector.HandoffButton.Bounds}");
+                Capture(vscs, outPrefix + "-1b-handoff-on.png");
+                plugin.Afk.Set(true); injector.Sync(); Pump(15);
+                Capture(vscs, outPrefix + "-1c-afk-on.png");
+                plugin.Afk.Set(false);
+                plugin.Settings.HandoffAlert = false; injector.Sync(); Pump(15);
                 vscs.Height = 200; Pump(10); // try to make it shorter than the minimum
                 Console.WriteLine($"after shrinking: {vscs.Height}");
                 injector.OpenPage(); Pump(15);
@@ -100,6 +107,11 @@ namespace AFVReplay.Tests
                 injector.Page.Playlist.PlayPause(null);
                 injector.Page.ShowSettings(true); Pump(15);
                 Capture(vscs, outPrefix + "-5-settings.png");
+                injector.Page.ShowSettingsPage(1); Pump(15);
+                Capture(vscs, outPrefix + "-5b-settings-media.png");
+                injector.Page.ShowSettingsPage(2); Pump(15);
+                Capture(vscs, outPrefix + "-5c-settings-alerts.png");
+                injector.Page.ShowSettingsPage(0);
                 injector.Page.ShowSettings(false);
                 injector.Page.Playlist.PlayPause(null);
                 Pump(10); injector.Sync(); injector.Sync();

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.0
 
 - **AFK** button on the VSCS Setup page, right of Handoff Alert. While it's on:
   - Calls and coord made while you're away aren't deleted; they're kept until the usual Keep Calls / Keep Coord time after you turn AFK off. Calls from before AFK expire as normal, the 200-call cap still applies, and disconnecting still wipes everything.

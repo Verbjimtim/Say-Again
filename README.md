@@ -36,7 +36,7 @@ Keeps the last few minutes of received AFV transmissions, and of hotline/coldlin
   - A plan you were handing off that disappears (pilot disconnected, plan dropped) plays nothing.
   - Tones play through vatSys's alert output at vatSys's alert volume, or Windows' default output if that isn't available. They're generated in memory.
   - If the separate Handoff Alert plugin is still installed, Say Again says so once: remove `HandoffAlertPlugin.dll`, or you'll hear every tone twice.
-- **AFK** (Say Again page, under ▼; pressed while on): calls and coord made while it's on are kept until the usual keep time after you turn it off (older calls expire as normal; the 200-call cap and disconnect wipe still apply). It also turns on vatSys's Tools → Request Break (once you're connected as ATC) and turns it off with AFK; turning Request Break off yourself ends AFK. Always off when vatSys starts. The Say Again list marks the time away with thin lines, **Away from Keyboard 0402Z** and **Back at Keyboard 0431Z** (UTC); each shows only while there are calls above and below it.
+- **AFK** (Say Again page, under ▼; pressed while on): calls and coord made while it's on are kept until the usual keep time after you turn it off (older calls expire as normal; the 200-call cap and disconnect wipe still apply). It also turns on vatSys's Tools → Request Break (once you're connected as ATC) and turns it off with AFK; turning Request Break off yourself ends AFK. Always off when vatSys starts. The Say Again list marks the time away with thin lines, **Away from Keyboard 0402Z** and **Back at Keyboard 0431Z** (UTC); markers for the latest AFK period appear immediately, while older markers show only while calls remain on both sides.
 
 ## Privacy
 

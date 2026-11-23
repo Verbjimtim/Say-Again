@@ -1673,6 +1673,15 @@ namespace AFVReplay.Tests
                 finally { AFVReplay.UI.SayAgainPage.PilotOverride = null; }
                 page.RefreshView(); Pump();
                 Assert(!list.Items.Cast<System.Windows.Forms.ListViewItem>().Any(i => page.IsHighlighted((Clip)i.Tag)), "nothing highlighted once deselected");
+                plugin.Afk.Set(true);
+                Pump();
+                Assert(list.Items[0].Tag is AfkMarker away && away.Away,
+                       "AFK enable immediately inserts its marker without a new call");
+                plugin.Afk.Set(false);
+                Pump();
+                Assert(list.Items[0].Tag is AfkMarker back && !back.Away &&
+                       list.Items[1].Tag is AfkMarker endedAway && endedAway.Away,
+                       "AFK disable immediately inserts its marker without a new call");
                 form.Close();
             }
         }

@@ -123,12 +123,14 @@ namespace AFVReplay
 
         /// <summary>
         /// The list's rows: the calls (newest first) with a marker where each time away started and ended.
-        /// A marker shows only with a call on each side of it, so it goes once the calls next to it expire.
+        /// The newest period's markers stay visible at the list boundaries; older markers need calls on both sides.
         /// </summary>
         public static List<object> Place(IReadOnlyList<Clip> newestFirst, IEnumerable<AfkPeriod> periods)
         {
+            var history = periods.ToList();
+            AfkPeriod? latest = history.Count > 0 ? history[history.Count - 1] : (AfkPeriod?)null;
             var markers = new List<AfkMarker>();
-            foreach (var p in periods)
+            foreach (var p in history)
             {
                 markers.Add(new AfkMarker(true, p.StartUtc));
                 if (p.EndUtc.HasValue) markers.Add(new AfkMarker(false, p.EndUtc.Value));
@@ -143,7 +145,11 @@ namespace AFVReplay
                 // Markers newer than this call go above it.
                 while (mi < markers.Count && (i == newestFirst.Count || markers[mi].AtUtc > newestFirst[i].EndUtc))
                 {
-                    if (i > 0 && i < newestFirst.Count) rows.Add(markers[mi]); // a call above and below
+                    var marker = markers[mi];
+                    bool latestPeriodMarker = latest.HasValue &&
+                        (marker.Away && marker.AtUtc == latest.Value.StartUtc ||
+                         !marker.Away && latest.Value.EndUtc == marker.AtUtc);
+                    if (latestPeriodMarker || i > 0 && i < newestFirst.Count) rows.Add(marker);
                     mi++;
                 }
                 if (i < newestFirst.Count) rows.Add(newestFirst[i]);

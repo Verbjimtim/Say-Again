@@ -226,12 +226,20 @@ namespace AFVReplay.Tests
 
             Assert(Rows(calls) == "1 | 2 | 3 | 4 | 5", "no AFK: just the calls");
             Assert(Rows(calls, away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4 | Away from Keyboard 0402Z | 5", "both lines: " + Rows(calls, away));
-            Assert(Rows(calls.Take(4).ToList(), away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4", "the call before AFK expired: Away goes");
-            Assert(Rows(calls.Skip(1).ToList(), away) == "2 | 3 | 4 | Away from Keyboard 0402Z | 5", "nothing after Back yet: Back doesn't show");
+            Assert(Rows(calls.Take(4).ToList(), away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4 | Away from Keyboard 0402Z",
+                "latest period markers remain visible when calls on either side expire");
+            Assert(Rows(calls.Skip(1).ToList(), away) == "Back at Keyboard 0426Z | 2 | 3 | 4 | Away from Keyboard 0402Z | 5",
+                "latest period markers remain visible without calls on either side");
             Assert(Rows(calls, new AfkPeriod(t.AddMinutes(-29), null)) == "1 | 2 | 3 | 4 | Away from Keyboard 0402Z | 5", "still AFK: Away only");
             Assert(Rows(calls, new AfkPeriod(t.AddMinutes(-15), t.AddMinutes(-10))) == "1 | 2 | Back at Keyboard 0421Z | Away from Keyboard 0416Z | 3 | 4 | 5",
                 "away with no calls: the two lines together");
-            Assert(Rows(new Clip[0], away) == "" && Rows(new[] { calls[0] }, away) == "1", "never on its own");
+            Assert(Rows(new Clip[0], away) == "Back at Keyboard 0426Z | Away from Keyboard 0402Z" &&
+                   Rows(new[] { calls[0] }, away) == "1 | Back at Keyboard 0426Z | Away from Keyboard 0402Z",
+                   "the latest period is shown even without calls");
+            var previous = new AfkPeriod(t.AddMinutes(-60), t.AddMinutes(-40));
+            var current = new AfkPeriod(t.AddMinutes(-10), null);
+            Assert(Rows(new Clip[0], previous, current) == "Away from Keyboard 0421Z",
+                "older periods still need calls on both sides");
             Assert(new AfkMarker(true, t).Equals(new AfkMarker(true, t)) && !new AfkMarker(true, t).Equals(new AfkMarker(false, t)), "same marker each refresh");
 
             // AFK records when it was on.

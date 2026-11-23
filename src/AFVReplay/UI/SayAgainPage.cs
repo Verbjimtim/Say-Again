@@ -373,9 +373,9 @@ namespace AFVReplay.UI
             if (playlist.IsPlaying && current != null)
                 playPause.Set(Who(current), Where(current), VscsButton.Faces.Receiving, true);
             else if (playlist.IsPaused && current != null)
-                playPause.SetSymbol(VscsButton.Arrows.Play, Who(current), VscsButton.Faces.Depressed, true); // paused: play resumes
+                playPause.SetSymbol(VscsButton.Arrows.PlayPause, Who(current), VscsButton.Faces.Depressed, true);
             else
-                playPause.SetSymbol(VscsButton.Arrows.Play, "", VscsButton.Faces.Normal, false);
+                playPause.SetSymbol(VscsButton.Arrows.PlayPause, "", VscsButton.Faces.Normal, false);
             settingsButton.Sunk = settingsArea.Visible;
             afkButton.Sunk = plugin.Afk.On; // pressed while AFK is on
 

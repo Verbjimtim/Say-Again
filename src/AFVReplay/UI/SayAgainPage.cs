@@ -667,6 +667,7 @@ namespace AFVReplay.UI
 
             var alerts = SettingsPage();
             handoffToggle = AddToggle(alerts, "Handoff Alert", s.HandoffAlert, v => s.HandoffAlert = v);
+            AddSlider(alerts, "Volume", 0, 100, s.HandoffVolumePercent, v => v + "%", v => s.HandoffVolumePercent = v, step: 5);
             AddSlider(alerts, "Repeat", ReplaySettings.RepeatOff, 10, s.HandoffRepeatSeconds,
                 v => v <= ReplaySettings.RepeatOff ? "Off" : v + " s", v => s.HandoffRepeatSeconds = v);
             plugin.SettingsChanged += SettingsChangedElsewhere;

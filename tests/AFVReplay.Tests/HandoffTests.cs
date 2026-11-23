@@ -111,6 +111,9 @@ namespace AFVReplay.Tests
             Assert(Crossings(rising, 0, toneFrames * 2) < Crossings(rising, rising.Length - toneFrames * 2, rising.Length), "incoming rises");
             var falling = AlertPlayer.Samples(AlertTone.Accepted, 44100, 2);
             Assert(Crossings(falling, 0, toneFrames * 2) > Crossings(falling, falling.Length - toneFrames * 2, falling.Length), "accepted falls");
+            var halfVolume = AlertPlayer.Samples(AlertTone.Incoming, 44100, 2, 0.5f);
+            Assert(Math.Abs(halfVolume.Max() - rising.Max() / 2) < 0.0001, "alert volume scales samples");
+            Assert(AlertPlayer.Samples(AlertTone.Incoming, 44100, 2, 0).All(s => s == 0), "zero alert volume is silent");
 
             // A sound vatSys can play: built in memory, the same shape as one vatSys loads from a file.
             Assert(VatSysBridge.ValidateAlertSound() == null, "alert bridge missing: " + VatSysBridge.ValidateAlertSound());
@@ -135,7 +138,12 @@ namespace AFVReplay.Tests
         {
             var s = new ReplaySettings();
             Assert(!s.HandoffAlert, "off by default");
+            Assert(s.HandoffVolumePercent == 100, "handoff volume defaults to current level");
             Assert(s.HandoffRepeat == TimeSpan.FromSeconds(5), "repeats every 5 s by default");
+            s.HandoffVolumePercent = -1; s.Normalise();
+            Assert(s.HandoffVolumePercent == 0, "handoff volume has a zero minimum");
+            s.HandoffVolumePercent = 101; s.Normalise();
+            Assert(s.HandoffVolumePercent == 100, "handoff volume is capped at 100%");
             s.HandoffRepeatSeconds = 99; s.Normalise();
             Assert(s.HandoffRepeatSeconds == 10, "capped at 10 s");
             s.HandoffRepeatSeconds = 0; s.Normalise();
@@ -144,12 +152,14 @@ namespace AFVReplay.Tests
             var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "afvreplay-test-" + Guid.NewGuid() + ".xml");
             try
             {
-                new ReplaySettings { HandoffAlert = true, HandoffRepeatSeconds = 7 }.Save(path);
+                new ReplaySettings { HandoffAlert = true, HandoffVolumePercent = 65, HandoffRepeatSeconds = 7 }.Save(path);
                 var loaded = ReplaySettings.Load(path);
-                Assert(loaded.HandoffAlert && loaded.HandoffRepeatSeconds == 7, "saved");
+                Assert(loaded.HandoffAlert && loaded.HandoffVolumePercent == 65 && loaded.HandoffRepeatSeconds == 7, "saved");
             }
             finally { System.IO.File.Delete(path); }
 
+            var plugin = new ReplayPlugin(new ReplaySettings { HandoffVolumePercent = 35 });
+            Assert(Math.Abs(plugin.Alerts.Volume - 0.35f) < 0.001f, "handoff volume applied to alert player");
             Assert(UI.VscsInjector.HandoffButtonBounds(2) == new System.Drawing.Rectangle(3 + 6 * 86 - 1, 3 + 66 - 1, 82, 62), "where Matt's plugin had it");
         }
 

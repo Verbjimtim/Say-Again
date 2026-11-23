@@ -340,6 +340,7 @@ namespace AFVReplay
             Player.Speed = Settings.SpeedPercent / 100f;
             CoordPlayer.Volume = Player.Volume;
             CoordPlayer.Speed = Player.Speed;
+            Alerts.Volume = Settings.HandoffVolumePercent / 100f;
             if (save) Settings.Save();
         }
 

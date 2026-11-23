@@ -6,6 +6,7 @@
 - Changed play/pause button icon to more intuitive symbol
 - Fixed line break issue on Settings page when  setting the length of time to retain coord playback to 10 minutes
 - Changed trigger of AFK table rows to button press (allowing the rows to display even if no transmissions are received in that timeframe)
+- Added a volume slider to Settings → Alerts for handoff tones.
 
 ## v0.2.2
 

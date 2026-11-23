@@ -100,6 +100,11 @@ namespace AFVReplay.Tests
 
         internal static void HandoffTonesPlayThroughVatSys()
         {
+            Assert(VatSysBridge.ShouldUsePrimaryOutputForAlert(new[] { false }), "missing speaker route uses vatSys's primary output");
+            Assert(!VatSysBridge.ShouldUsePrimaryOutputForAlert(new[] { true }), "available speaker route keeps vatSys's alert output");
+            Assert(!VatSysBridge.ShouldUsePrimaryOutputForAlert(new bool[0]), "no speaker route keeps vatSys's alert output");
+            Assert(!VatSysBridge.ShouldUsePrimaryOutputForAlert(new[] { false, true }), "an available speaker route keeps vatSys's alert output");
+
             // The tones: two 110 ms tones 45 ms apart, rising / falling / flat.
             var rising = AlertPlayer.Samples(AlertTone.Incoming, 44100, 2);
             int frames = rising.Length / 2;

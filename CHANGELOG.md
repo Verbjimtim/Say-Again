@@ -7,6 +7,7 @@
 - Fixed line break issue on Settings page when  setting the length of time to retain coord playback to 10 minutes
 - Changed trigger of AFK table rows to button press (allowing the rows to display even if no transmissions are received in that timeframe)
 - Added a volume slider to Settings → Alerts for handoff tones.
+- Routed handoff alerts through vatSys's primary output when all configured speaker outputs are unavailable.
 
 ## v0.2.2
 

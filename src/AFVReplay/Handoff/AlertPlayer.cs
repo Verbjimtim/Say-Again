@@ -11,9 +11,9 @@ namespace AFVReplay.Handoff
 
     /// <summary>
     /// Plays the handoff tones (Matt's: rising for a handoff to you, falling for your handoff accepted, flat
-    /// for refused). They go out through vatSys's alert sound output, at vatSys's alert volume, or through
-    /// Windows' default output if that's not available. Generated in memory: nothing is read from or
-    /// written to disk. Calls queue in order on a background task, never blocking vatSys.
+    /// for refused). They use vatSys's alert output, or its configured primary output if the speaker route
+    /// is unavailable, and Windows' default output only if vatSys audio is unavailable. Generated in memory:
+    /// nothing is read from or written to disk. Calls queue in order on a background task, never blocking vatSys.
     /// </summary>
     internal sealed class AlertPlayer
     {
@@ -56,7 +56,7 @@ namespace AFVReplay.Handoff
                 if (!reportedFallback)
                 {
                     reportedFallback = true;
-                    Diag.UserError("Say Again: handoff tones are playing through Windows' default output, not vatSys's alert output (" + why + ").");
+                    Diag.UserError("Say Again: handoff tones are playing through Windows' default output, not vatSys audio (" + why + ").");
                 }
                 using (var wav = Wav(tone, 48000, 2, volume))
                 using (var player = new SoundPlayer(wav))

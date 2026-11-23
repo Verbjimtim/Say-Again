@@ -46,8 +46,12 @@ namespace AFVReplay.Tests
             Run(nameof(SayAgainListKeepsScrollAndSelection), SayAgainListKeepsScrollAndSelection);
             Run(nameof(SayAgainListShowsCallsFromBeforeOpening), () =>
             {
-                const string profile = @"C:\Users\jamie\Documents\vatSys Files\Profiles\Australia";
-                if (System.IO.Directory.Exists(profile)) SayAgainListShowsCallsFromBeforeOpening(profile);
+                var profiles = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "vatSys Files", "Profiles");
+                var profile = System.IO.Directory.Exists(profiles)
+                    ? System.IO.Directory.GetDirectories(profiles).FirstOrDefault()
+                    : null;
+                if (profile != null) SayAgainListShowsCallsFromBeforeOpening(profile);
             });
             Run(nameof(RecordsAtEightKilohertz), RecordsAtEightKilohertz);
             Run(nameof(CoordLevelsQuietMic), CoordLevelsQuietMic);
@@ -1592,6 +1596,41 @@ namespace AFVReplay.Tests
                 var pageButtons = page.Controls.OfType<AFVReplay.UI.VscsButton>().ToArray();
                 Assert(pageButtons.Length == 5 && pageButtons.All(b => b.Width == 82 && b.Height == 62),
                        "Say Again page buttons match the native VSCS button size");
+                page.ShowSettings(true);
+                page.ShowSettingsPage(0);
+                Pump();
+                var settingsPages = (System.Windows.Forms.TableLayoutPanel[])typeof(AFVReplay.UI.SayAgainPage)
+                    .GetField("settingsPages", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(page);
+                var keepCoordValue = settingsPages[0].GetControlFromPosition(2, 1);
+                Assert(keepCoordValue != null && keepCoordValue.PreferredSize.Width <= settingsPages[0].GetColumnWidths()[2],
+                       "Keep Coord value fits in one line at 10 min");
+                var toggleLabels = new[] { 4, 5 }
+                    .Select(row => (vatsys.TextLabel)((System.Windows.Forms.FlowLayoutPanel)settingsPages[0].GetControlFromPosition(0, row)).Controls[0])
+                    .ToArray();
+                Assert(toggleLabels.All(label => label.Height <= label.Font.Height + 4),
+                       "Replay toggle labels stay on one line");
+                var toggleButtons = new[] { 4, 5 }
+                    .Select(row => ((System.Windows.Forms.FlowLayoutPanel)settingsPages[0].GetControlFromPosition(0, row)).Controls[1])
+                    .ToArray();
+                Assert(toggleLabels.All(label => label.Width == 180 && label.Left == 0 &&
+                                                   label.TextAlign == System.Drawing.ContentAlignment.MiddleLeft) &&
+                       toggleButtons[0].Left == toggleButtons[1].Left,
+                       "Replay toggle labels stay left aligned and their buttons line up");
+                var keepCoordSlider = (VATSYSControls.Slider)settingsPages[0].GetControlFromPosition(1, 1);
+                page.Width = 350; Pump();
+                Assert(keepCoordSlider.Width >= 40,
+                       $"Keep Coord slider remains usable at minimum VSCS width (bounds {keepCoordSlider.Bounds}, columns {string.Join(",", settingsPages[0].GetColumnWidths())})");
+                int sliderY = keepCoordSlider.Height / 2;
+                IntPtr SliderPoint(int x) => (IntPtr)((sliderY << 16) | (x & 0xFFFF));
+                SendMessage(keepCoordSlider.Handle, 0x0201, (IntPtr)1, SliderPoint(keepCoordSlider.Width / 2));
+                SendMessage(keepCoordSlider.Handle, 0x0200, (IntPtr)1, SliderPoint(0));
+                SendMessage(keepCoordSlider.Handle, 0x0202, IntPtr.Zero, SliderPoint(0));
+                Pump();
+                Assert(keepCoordSlider.Value == keepCoordSlider.Minimum,
+                       "dragging from the slider track updates it on the first attempt");
+                page.ShowSettings(false);
+                plugin.Settings.CoordRetentionMinutes = 10;
+                page.Width = 430; Pump();
                 page.RefreshView(); Pump();
                 var list = FindControl<System.Windows.Forms.ListView>(page);
                 int top0 = list.GetItemRect(0).Top, height = list.ClientSize.Height;

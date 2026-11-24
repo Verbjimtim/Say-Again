@@ -14,7 +14,7 @@ Keeps the last few minutes of received AFV transmissions, and of hotline/coldlin
 
 - **One clip per transmission, per frequency**, tagged with callsign and frequency. Two stations on different frequencies at once become two clips.
 - **Replay key** sits in vatSys's own *Settings → Keyboard* window, under *Quick Text*, as **Replay Last**. It captures exactly like PTT: left click for keyboard/mouse/joystick, right click for keyboard/mouse only, middle click to clear. It works when vatSys isn't focused.
-- **Each key plays the most recent call of its kind** (Replay Last: frequency; Replay Coord: line call). Press again to hear the same call again from the start, as often as you need to work out what was said. Your own transmissions are skipped. Once a newer call comes in, the key plays that one. Older calls are on the Say Again page.
+- **Each key plays the most recent call of its kind** (Replay Last: frequency; Replay Coord: line call). Pressing it again while it's playing pauses it, and pressing while paused resumes. After it finishes, pressing again plays that same call from the start; once a newer call comes in, the key plays that one instead. Your own transmissions are skipped. Older calls are on the Say Again page.
 - Replay plays through vatSys's AFV output, so you hear it on the same headset and extra outputs at the vatSys volume.
 - **Your own voice too**: your frequency transmissions (only real ones: PTT held with AFV connected and a frequency set to Transmit, one clip per press, on that frequency; pressing PTT as an observer records nothing) and your side of open lines (mixed into the line call's clip). Your frequency transmissions get vatSys's AFV mic gain, as AFV applies it. On lines vatSys sends the raw mic, so each side of a line call is brought up to a normal speech level (boost only, at most 8x) before mixing. Your transmissions show as "You" in the list and "YOU" on the VSCS.
 - **Coord replay** (hotline/coldline), on its own key, **Replay Coord**, kept for up to **10 minutes**. Each line call becomes one clip with **both sides mixed** as you heard them (the other controller and you), labelled with who the call was with (e.g. `ML-BIK_CTR`). A call lasts from when vatSys opens the line until it closes it (vatSys's own hotline/coldline state; ringing doesn't count), pauses included at their real length (calls over 5 minutes are split). In the list its Freq shows **Hotline** or **Coldline**, and Callsign shows who the line was with, even if they never spoke (not you). A call nobody spoke on is still listed, with "silent" as its length; it has nothing to play, so the keys and ▲/▼ skip it. It plays back through vatSys's coord output at the coord volume. Only lines you had open are recorded, because vatSys mutes the others. Both sides are kept.
@@ -109,7 +109,7 @@ The harness loads vatSys's own DLLs (x86) and drives the **real AFV receive pipe
 ```
 src/AFVReplay/
   ReplayPlugin.cs          entry point (MEF IPlugin), wiring, privacy wipes
-  ReplayController.cs      replay key: most recent call, press again to repeat
+  ReplayController.cs      replay key: most recent call, pause/resume or repeat after finished
   ReplaySettings.cs        preferences only
   Audio/                   tap, recorder, finalizer (dedupe + Opus), store, player, hook
   Handoff/                 Handoff Alert: tracker (the rules), monitor (vatSys side), tones

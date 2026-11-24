@@ -4,10 +4,12 @@
 
 - Adjusted the width/height of the primary buttons to exactly match the default VSCS button size (some were 2px smaller)
 - Changed play/pause button icon to more intuitive symbol
+- Added vertical padding below the play/pause symbol on the Say Again button when showing a station name while paused
+- Replay Last/Replay Coord keys now pause while playing and resume when paused; pressing again after playback finishes replays the most recent call from the start (to match normal playback behaviour)
 - Fixed line break issue on Settings page when  setting the length of time to retain coord playback to 10 minutes
 - Changed trigger of AFK table rows to button press (allowing the rows to display even if no transmissions are received in that timeframe)
-- Added a volume slider to Settings → Alerts for handoff tones.
-- Routed handoff alerts through vatSys's primary output when all configured speaker outputs are unavailable.
+- Added a volume slider to Settings → Alerts for handoff tones
+- Routed handoff alerts through vatSys's primary output when all configured speaker outputs are unavailable
 
 ## v0.2.2
 

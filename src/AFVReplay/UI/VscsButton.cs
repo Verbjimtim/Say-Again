@@ -117,7 +117,7 @@ namespace AFVReplay.UI
                 }
                 if (withSub)
                 {
-                    var bottom = new Rectangle(r.X, top.Bottom, r.Width, r.Height - top.Height);
+                    var bottom = new Rectangle(r.X, top.Bottom + 3, r.Width, r.Height - top.Height - 3);
                     TextRenderer.DrawText(g, subText, Fit(g, subText, subFont, r.Width - 4), bottom, colour,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.Top);
                 }

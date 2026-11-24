@@ -439,19 +439,17 @@ namespace AFVReplay.Tests
                 var mixed = rig.Pump(400);
                 Assert(Rms(mixed) > 0.05, "replay should come out of the AFV mix");
 
-                rig.Pump(200);
-                var c2 = controller.Press();
-                Assert(c2?.CallsignText == "SECOND", "second press repeats the newest, got " + c2?.CallsignText);
-                Assert(rig.Player.Progress < 0.05, "and restarts it from the beginning, at " + rig.Player.Progress);
-                var c3 = controller.Press();
-                Assert(c3?.CallsignText == "SECOND", "never steps back, got " + c3?.CallsignText);
+                Assert(controller.Press()?.CallsignText == "SECOND" && rig.Player.IsPaused, "pressing while playing pauses it");
+                Assert(controller.Press()?.CallsignText == "SECOND" && rig.Player.IsPlaying && !rig.Player.IsPaused, "pressing while paused resumes it");
 
                 rig.Pump(1500);
                 Assert(!rig.Player.IsPlaying, "playback should finish");
                 Assert(rig.Store.Count == 2, "replay itself must not be recorded as a new call");
 
+                var c4 = controller.Press();
+                Assert(c4?.CallsignText == "SECOND" && rig.Player.Progress < 0.05, "after finishing, pressing again replays it from the start");
+
                 bool stopped = false;
-                controller.Press();
                 rig.Hook.RxStarted += (s, f) => { stopped = true; rig.Player.Stop(); };
                 rig.Transmit("THIRD", 0.6, 500, (1, 125_600_000, 1f));
                 rig.Pump(100);
@@ -469,15 +467,21 @@ namespace AFVReplay.Tests
                 new[] { "You" }, false, OpusCodec.Encode(pcm, pcm.Length), pcm.Length, isOwn: true);
             plugin.Store.Add(own);
             Assert(plugin.Controller.Press() == pilot, "your own reply is skipped: the key plays the pilot's call");
-            Assert(plugin.Controller.Press() == pilot, "pressing again repeats it");
+            Assert(plugin.Controller.Press() == pilot && plugin.Player.IsPaused, "pressing while playing pauses it");
+            Assert(plugin.Controller.Press() == pilot && !plugin.Player.IsPaused, "pressing while paused resumes it");
+            PlayToEnd(plugin.Player);
+            Assert(plugin.Controller.Press() == pilot, "after it finishes, pressing again replays it from the start");
             var newer = ToneClip(plugin, "VOZ2", 1);
             plugin.Store.Add(newer);
+            plugin.StopAll();
             Assert(plugin.Controller.Press() == newer, "a newer call takes over");
             plugin.StopAll();
             plugin.CoordStore.Add(CoordClip(plugin, "ML-BIK_CTR", 1));
             var latestCoord = CoordClip(plugin, "BN-ISA_CTR", 1);
             plugin.CoordStore.Add(latestCoord);
-            Assert(plugin.CoordController.Press() == latestCoord && plugin.CoordController.Press() == latestCoord, "coord key: newest line call, repeated");
+            Assert(plugin.CoordController.Press() == latestCoord, "coord key: newest line call");
+            Assert(plugin.CoordController.Press() == latestCoord && plugin.CoordPlayer.IsPaused, "pressing while playing pauses it");
+            Assert(plugin.CoordController.Press() == latestCoord && !plugin.CoordPlayer.IsPaused, "pressing while paused resumes it");
             plugin.StopAll();
         }
 

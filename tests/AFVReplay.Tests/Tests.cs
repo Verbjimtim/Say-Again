@@ -46,8 +46,12 @@ namespace AFVReplay.Tests
             Run(nameof(SayAgainListKeepsScrollAndSelection), SayAgainListKeepsScrollAndSelection);
             Run(nameof(SayAgainListShowsCallsFromBeforeOpening), () =>
             {
-                const string profile = @"C:\Users\jamie\Documents\vatSys Files\Profiles\Australia";
-                if (System.IO.Directory.Exists(profile)) SayAgainListShowsCallsFromBeforeOpening(profile);
+                var profiles = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "vatSys Files", "Profiles");
+                var profile = System.IO.Directory.Exists(profiles)
+                    ? System.IO.Directory.GetDirectories(profiles).FirstOrDefault()
+                    : null;
+                if (profile != null) SayAgainListShowsCallsFromBeforeOpening(profile);
             });
             Run(nameof(RecordsAtEightKilohertz), RecordsAtEightKilohertz);
             Run(nameof(CoordLevelsQuietMic), CoordLevelsQuietMic);
@@ -435,19 +439,17 @@ namespace AFVReplay.Tests
                 var mixed = rig.Pump(400);
                 Assert(Rms(mixed) > 0.05, "replay should come out of the AFV mix");
 
-                rig.Pump(200);
-                var c2 = controller.Press();
-                Assert(c2?.CallsignText == "SECOND", "second press repeats the newest, got " + c2?.CallsignText);
-                Assert(rig.Player.Progress < 0.05, "and restarts it from the beginning, at " + rig.Player.Progress);
-                var c3 = controller.Press();
-                Assert(c3?.CallsignText == "SECOND", "never steps back, got " + c3?.CallsignText);
+                Assert(controller.Press()?.CallsignText == "SECOND" && rig.Player.IsPaused, "pressing while playing pauses it");
+                Assert(controller.Press()?.CallsignText == "SECOND" && rig.Player.IsPlaying && !rig.Player.IsPaused, "pressing while paused resumes it");
 
                 rig.Pump(1500);
                 Assert(!rig.Player.IsPlaying, "playback should finish");
                 Assert(rig.Store.Count == 2, "replay itself must not be recorded as a new call");
 
+                var c4 = controller.Press();
+                Assert(c4?.CallsignText == "SECOND" && rig.Player.Progress < 0.05, "after finishing, pressing again replays it from the start");
+
                 bool stopped = false;
-                controller.Press();
                 rig.Hook.RxStarted += (s, f) => { stopped = true; rig.Player.Stop(); };
                 rig.Transmit("THIRD", 0.6, 500, (1, 125_600_000, 1f));
                 rig.Pump(100);
@@ -465,15 +467,21 @@ namespace AFVReplay.Tests
                 new[] { "You" }, false, OpusCodec.Encode(pcm, pcm.Length), pcm.Length, isOwn: true);
             plugin.Store.Add(own);
             Assert(plugin.Controller.Press() == pilot, "your own reply is skipped: the key plays the pilot's call");
-            Assert(plugin.Controller.Press() == pilot, "pressing again repeats it");
+            Assert(plugin.Controller.Press() == pilot && plugin.Player.IsPaused, "pressing while playing pauses it");
+            Assert(plugin.Controller.Press() == pilot && !plugin.Player.IsPaused, "pressing while paused resumes it");
+            PlayToEnd(plugin.Player);
+            Assert(plugin.Controller.Press() == pilot, "after it finishes, pressing again replays it from the start");
             var newer = ToneClip(plugin, "VOZ2", 1);
             plugin.Store.Add(newer);
+            plugin.StopAll();
             Assert(plugin.Controller.Press() == newer, "a newer call takes over");
             plugin.StopAll();
             plugin.CoordStore.Add(CoordClip(plugin, "ML-BIK_CTR", 1));
             var latestCoord = CoordClip(plugin, "BN-ISA_CTR", 1);
             plugin.CoordStore.Add(latestCoord);
-            Assert(plugin.CoordController.Press() == latestCoord && plugin.CoordController.Press() == latestCoord, "coord key: newest line call, repeated");
+            Assert(plugin.CoordController.Press() == latestCoord, "coord key: newest line call");
+            Assert(plugin.CoordController.Press() == latestCoord && plugin.CoordPlayer.IsPaused, "pressing while playing pauses it");
+            Assert(plugin.CoordController.Press() == latestCoord && !plugin.CoordPlayer.IsPaused, "pressing while paused resumes it");
             plugin.StopAll();
         }
 
@@ -595,6 +603,8 @@ namespace AFVReplay.Tests
             Assert(AFVReplay.UI.VscsLayout.MenuColumn(5, 262) == 2, "5 frequencies take two columns at default height");
             Assert(AFVReplay.UI.VscsLayout.MenuColumn(5, 328) == 1, "5 frequencies fit one column when taller");
             Assert(AFVReplay.UI.VscsLayout.Cell(1, 4) == new System.Drawing.Rectangle(89, 267, 80, 60), "Say Again under Group " + AFVReplay.UI.VscsLayout.Cell(1, 4));
+            Assert(AFVReplay.UI.VscsInjector.SayAgainButtonBounds(1) == new System.Drawing.Rectangle(88, 266, 82, 62),
+                   "Say Again matches the VSCS menu button size");
             Assert(AFVReplay.UI.VscsInjector.PanelHeightNeeded == 330 && AFVReplay.UI.VscsLayout.Rows(AFVReplay.UI.VscsInjector.PanelHeightNeeded) == 5,
                    "minimum panel height fits Say Again under Group: " + AFVReplay.UI.VscsInjector.PanelHeightNeeded);
 
@@ -1587,6 +1597,44 @@ namespace AFVReplay.Tests
                 page.Visible = true;
                 page.Bounds = new System.Drawing.Rectangle(172, 0, 430, 330);
                 Pump();
+                var pageButtons = page.Controls.OfType<AFVReplay.UI.VscsButton>().ToArray();
+                Assert(pageButtons.Length == 5 && pageButtons.All(b => b.Width == 82 && b.Height == 62),
+                       "Say Again page buttons match the native VSCS button size");
+                page.ShowSettings(true);
+                page.ShowSettingsPage(0);
+                Pump();
+                var settingsPages = (System.Windows.Forms.TableLayoutPanel[])typeof(AFVReplay.UI.SayAgainPage)
+                    .GetField("settingsPages", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(page);
+                var keepCoordValue = settingsPages[0].GetControlFromPosition(2, 1);
+                Assert(keepCoordValue != null && keepCoordValue.PreferredSize.Width <= settingsPages[0].GetColumnWidths()[2],
+                       "Keep Coord value fits in one line at 10 min");
+                var toggleLabels = new[] { 4, 5 }
+                    .Select(row => (vatsys.TextLabel)((System.Windows.Forms.FlowLayoutPanel)settingsPages[0].GetControlFromPosition(0, row)).Controls[0])
+                    .ToArray();
+                Assert(toggleLabels.All(label => label.Height <= label.Font.Height + 4),
+                       "Replay toggle labels stay on one line");
+                var toggleButtons = new[] { 4, 5 }
+                    .Select(row => ((System.Windows.Forms.FlowLayoutPanel)settingsPages[0].GetControlFromPosition(0, row)).Controls[1])
+                    .ToArray();
+                Assert(toggleLabels.All(label => label.Width == 180 && label.Left == 0 &&
+                                                   label.TextAlign == System.Drawing.ContentAlignment.MiddleLeft) &&
+                       toggleButtons[0].Left == toggleButtons[1].Left,
+                       "Replay toggle labels stay left aligned and their buttons line up");
+                var keepCoordSlider = (VATSYSControls.Slider)settingsPages[0].GetControlFromPosition(1, 1);
+                page.Width = 350; Pump();
+                Assert(keepCoordSlider.Width >= 40,
+                       $"Keep Coord slider remains usable at minimum VSCS width (bounds {keepCoordSlider.Bounds}, columns {string.Join(",", settingsPages[0].GetColumnWidths())})");
+                int sliderY = keepCoordSlider.Height / 2;
+                IntPtr SliderPoint(int x) => (IntPtr)((sliderY << 16) | (x & 0xFFFF));
+                SendMessage(keepCoordSlider.Handle, 0x0201, (IntPtr)1, SliderPoint(keepCoordSlider.Width / 2));
+                SendMessage(keepCoordSlider.Handle, 0x0200, (IntPtr)1, SliderPoint(0));
+                SendMessage(keepCoordSlider.Handle, 0x0202, IntPtr.Zero, SliderPoint(0));
+                Pump();
+                Assert(keepCoordSlider.Value == keepCoordSlider.Minimum,
+                       "dragging from the slider track updates it on the first attempt");
+                page.ShowSettings(false);
+                plugin.Settings.CoordRetentionMinutes = 10;
+                page.Width = 430; Pump();
                 page.RefreshView(); Pump();
                 var list = FindControl<System.Windows.Forms.ListView>(page);
                 int top0 = list.GetItemRect(0).Top, height = list.ClientSize.Height;
@@ -1629,6 +1677,15 @@ namespace AFVReplay.Tests
                 finally { AFVReplay.UI.SayAgainPage.PilotOverride = null; }
                 page.RefreshView(); Pump();
                 Assert(!list.Items.Cast<System.Windows.Forms.ListViewItem>().Any(i => page.IsHighlighted((Clip)i.Tag)), "nothing highlighted once deselected");
+                plugin.Afk.Set(true);
+                Pump();
+                Assert(list.Items[0].Tag is AfkMarker away && away.Away,
+                       "AFK enable immediately inserts its marker without a new call");
+                plugin.Afk.Set(false);
+                Pump();
+                Assert(list.Items[0].Tag is AfkMarker back && !back.Away &&
+                       list.Items[1].Tag is AfkMarker endedAway && endedAway.Away,
+                       "AFK disable immediately inserts its marker without a new call");
                 form.Close();
             }
         }

@@ -20,6 +20,9 @@ namespace AFVReplay.UI
     internal sealed class SayAgainPage : Panel
     {
         private const int W = VscsLayout.ButtonWidth, H = VscsLayout.ButtonHeight, P = VscsLayout.Padding;
+        private const int SettingsValueColumnWidth = 64;
+        private const int SettingsLabelColumnMaxWidth = 120;
+        private const int SettingsToggleLabelWidth = 180;
 
         private static Color VscsBg => Colours.GetColour(Colours.Identities.VSCSBackground);
         private static Color WinBg => Colours.GetColour(Colours.Identities.WindowBackground);
@@ -162,11 +165,11 @@ namespace AFVReplay.UI
         {
             base.OnLayout(e);
             if (progress == null) return; // still being built
-            settingsButton.Bounds = new Rectangle(0, VscsLayout.RowY(0), W, H);
-            newer.Bounds = new Rectangle(0, VscsLayout.RowY(1), W, H);
-            playPause.Bounds = new Rectangle(0, VscsLayout.RowY(2), W, H);
-            older.Bounds = new Rectangle(0, VscsLayout.RowY(3), W, H);
-            afkButton.Bounds = new Rectangle(0, VscsLayout.RowY(4), W, H);
+            settingsButton.Bounds = PageButtonBounds(0);
+            newer.Bounds = PageButtonBounds(1);
+            playPause.Bounds = PageButtonBounds(2);
+            older.Bounds = PageButtonBounds(3);
+            afkButton.Bounds = PageButtonBounds(4);
 
             int x = W + 2 * P;
             int width = Math.Max(80, ClientSize.Width - x - P);
@@ -193,6 +196,9 @@ namespace AFVReplay.UI
             listScroll.Bounds = new Rectangle(listArea.Right + 3, listArea.Top, scrollWidth, listArea.Height);
             progress.Bounds = new Rectangle(area.X, area.Bottom - bar, area.Width, bar);
         }
+
+        private static Rectangle PageButtonBounds(int row) =>
+            new Rectangle(0, VscsLayout.RowY(row) - 1, W + 2, H + 2);
 
         private void FitColumns()
         {
@@ -370,9 +376,9 @@ namespace AFVReplay.UI
             if (playlist.IsPlaying && current != null)
                 playPause.Set(Who(current), Where(current), VscsButton.Faces.Receiving, true);
             else if (playlist.IsPaused && current != null)
-                playPause.SetSymbol(VscsButton.Arrows.Play, Who(current), VscsButton.Faces.Depressed, true); // paused: play resumes
+                playPause.SetSymbol(VscsButton.Arrows.PlayPause, Who(current), VscsButton.Faces.Depressed, true);
             else
-                playPause.SetSymbol(VscsButton.Arrows.Play, "", VscsButton.Faces.Normal, false);
+                playPause.SetSymbol(VscsButton.Arrows.PlayPause, "", VscsButton.Faces.Normal, false);
             settingsButton.Sunk = settingsArea.Visible;
             afkButton.Sunk = plugin.Afk.On; // pressed while AFK is on
 
@@ -583,7 +589,21 @@ namespace AFVReplay.UI
         private CheckBox AddToggle(TableLayoutPanel t, string label, bool value, Action<bool> set)
         {
             var toggle = Toggle(value, set);
-            AddRow(t, SettingLabel(label), toggle);
+            var settingLabel = SettingLabel(label, maxWidth: 0);
+            settingLabel.AutoSize = false;
+            settingLabel.Size = new Size(SettingsToggleLabelWidth, toggle.Height);
+            settingLabel.TextAlign = ContentAlignment.MiddleLeft;
+            var row = new FlowLayoutPanel
+            {
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = WinBg, Margin = Padding.Empty,
+            };
+            row.Controls.Add(settingLabel);
+            row.Controls.Add(toggle);
+            int rowIndex = t.RowCount++;
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.Controls.Add(row, 0, rowIndex);
+            t.SetColumnSpan(row, t.ColumnCount);
             return toggle;
         }
 
@@ -647,6 +667,7 @@ namespace AFVReplay.UI
 
             var alerts = SettingsPage();
             handoffToggle = AddToggle(alerts, "Handoff Alert", s.HandoffAlert, v => s.HandoffAlert = v);
+            AddSlider(alerts, "Volume", 0, 100, s.HandoffVolumePercent, v => v + "%", v => s.HandoffVolumePercent = v, step: 5);
             AddSlider(alerts, "Repeat", ReplaySettings.RepeatOff, 10, s.HandoffRepeatSeconds,
                 v => v <= ReplaySettings.RepeatOff ? "Off" : v + " s", v => s.HandoffRepeatSeconds = v);
             plugin.SettingsChanged += SettingsChangedElsewhere;
@@ -726,7 +747,7 @@ namespace AFVReplay.UI
             var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, BackColor = WinBg, AutoScroll = false, Visible = false }; // rows packed at the top
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 52));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, SettingsValueColumnWidth));
             return t;
         }
 
@@ -740,10 +761,16 @@ namespace AFVReplay.UI
             return row;
         }
 
-        private static TextLabel SettingLabel(string text) => new TextLabel(true)
+        private static TextLabel SettingLabel(string text, int maxWidth = SettingsLabelColumnMaxWidth)
         {
-            Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Font = MMI.eurofont_winverysml, BackColor = WinBg, Margin = new Padding(0, 0, 6, 0),
-        };
+            var label = new TextLabel(true)
+            {
+                Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Font = MMI.eurofont_winverysml,
+                BackColor = WinBg, Margin = new Padding(0, 0, 6, 0),
+            };
+            if (maxWidth > 0) label.MaximumSize = new Size(maxWidth, 0);
+            return label;
+        }
 
         /// <summary>A slider row with its value beside it, on one line.</summary>
         // vatSys's Slider places its handle as Value/Maximum (it ignores Minimum), so each runs from 0
@@ -760,7 +787,8 @@ namespace AFVReplay.UI
             };
             slider.PaintText += (o, e) => { }; // the value is drawn beside the slider, not under it
             var valueLabel = new TextLabel(true) { Text = text(slider.Value + min), AutoSize = true, Anchor = AnchorStyles.Right, Font = MMI.eurofont_winverysml, BackColor = WinBg, Margin = new Padding(0) };
-            slider.Scroll += (o, e) =>
+            bool dragging = false;
+            void ApplySliderValue()
             {
                 int v = slider.Value + min;
                 if (step > 1)
@@ -771,6 +799,36 @@ namespace AFVReplay.UI
                 valueLabel.Text = text(v);
                 set(v);
                 plugin.ApplySettings();
+            }
+            void SetSliderFromMouse(int x)
+            {
+                if (slider.Width <= 0) return;
+                int inset = Math.Min(slider.Height / 2, slider.Width / 2);
+                int travel = Math.Max(1, slider.Width - 2 * inset);
+                double fraction = Math.Max(0, Math.Min(1, (x - inset) / (double)travel));
+                int value = slider.Minimum + (int)Math.Round(fraction * (slider.Maximum - slider.Minimum));
+                if (value == slider.Value) return;
+                slider.Value = value;
+                ApplySliderValue();
+            }
+            slider.Scroll += (o, e) =>
+            {
+                ApplySliderValue();
+            };
+            slider.MouseDown += (o, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                dragging = true;
+                slider.Capture = true;
+                SetSliderFromMouse(e.X);
+            };
+            slider.MouseMove += (o, e) => { if (dragging) SetSliderFromMouse(e.X); };
+            slider.MouseUp += (o, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                SetSliderFromMouse(e.X);
+                dragging = false;
+                slider.Capture = false;
             };
             AddRow(t, SettingLabel(name), slider, valueLabel);
         }

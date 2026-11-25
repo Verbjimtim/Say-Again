@@ -48,6 +48,9 @@ namespace AFVReplay
         /// <summary>Handoff Alert: tones for a handoff to you, your handoff accepted, and your handoff refused. Off by default.</summary>
         public bool HandoffAlert { get; set; }
 
+        /// <summary>Handoff alert volume, 0-100 percent of the current level.</summary>
+        public int HandoffVolumePercent { get; set; } = 100;
+
         /// <summary>Seconds between repeats while a handoff to you waits: 3-10, or <see cref="RepeatOff"/>.</summary>
         public int HandoffRepeatSeconds { get; set; } = 5;
 
@@ -73,6 +76,7 @@ namespace AFVReplay
             SpeedPercent = Math.Max(100, Math.Min(200, SpeedPercent));
             CoordRetentionMinutes = Math.Max(1, Math.Min(10, CoordRetentionMinutes));
             MediaResumeSeconds = Math.Max(1, Math.Min(ResumeNever, MediaResumeSeconds));
+            HandoffVolumePercent = Math.Max(0, Math.Min(100, HandoffVolumePercent));
             HandoffRepeatSeconds = Math.Max(RepeatOff, Math.Min(10, HandoffRepeatSeconds));
             DuckPercent = Math.Max(10, Math.Min(100, (int)Math.Round(DuckPercent / 10.0, MidpointRounding.AwayFromZero) * 10));
             ReplayBinding = ReplayBinding ?? "";

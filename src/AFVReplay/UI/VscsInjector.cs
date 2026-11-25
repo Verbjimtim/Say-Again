@@ -138,7 +138,7 @@ namespace AFVReplay.UI
 
                 // Say Again: a fifth menu button under Group, like Setup / Coord / Text / Group.
                 menuButton.Visible = true;
-                menuButton.Bounds = VscsLayout.Cell(menuCol, 4);
+                menuButton.Bounds = SayAgainButtonBounds(menuCol);
                 ShowSayAgain(menuButton);
                 menuButton.BringToFront();
 
@@ -204,6 +204,12 @@ namespace AFVReplay.UI
         /// </summary>
         internal static Rectangle HandoffButtonBounds(int menuColumn) =>
             new Rectangle(VscsLayout.ColumnX(menuColumn + 4) - 1, VscsLayout.RowY(1) - 1, VscsLayout.ButtonWidth + 2, VscsLayout.ButtonHeight + 2);
+
+        internal static Rectangle SayAgainButtonBounds(int menuColumn)
+        {
+            var cell = VscsLayout.Cell(menuColumn, 4);
+            return new Rectangle(cell.X - 1, cell.Y - 1, cell.Width + 2, cell.Height + 2);
+        }
 
         internal VscsButton HandoffButton => handoffButton;
 

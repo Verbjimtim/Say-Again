@@ -24,11 +24,26 @@ namespace AFVReplay
         /// <summary>The call the key would play now: the newest that isn't only you, or null.</summary>
         public Clip Latest() => store.Snapshot().FirstOrDefault(c => !c.IsOwn && c.IsPlayable); // newest first; silent line calls have nothing to play
 
-        /// <summary>Plays (or restarts) the most recent call. Returns it, or null if there is none.</summary>
+        /// <summary>
+        /// Pauses the playing call, resumes a paused one, or plays/restarts the most recent call.
+        /// Returns the affected call, or null if there is none.
+        /// </summary>
         public Clip Press()
         {
             lock (sync)
             {
+                if (player.IsPlaying && !player.IsPaused)
+                {
+                    var current = player.PlayingClip;
+                    player.Pause();
+                    return current;
+                }
+                if (player.IsPaused)
+                {
+                    var current = player.PlayingClip;
+                    player.Resume();
+                    return current;
+                }
                 var clip = Latest();
                 if (clip != null) player.Play(clip);
                 return clip;

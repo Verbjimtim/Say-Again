@@ -11,9 +11,9 @@ namespace AFVReplay.Handoff
 
     /// <summary>
     /// Plays the handoff tones (Matt's: rising for a handoff to you, falling for your handoff accepted, flat
-    /// for refused). They go out through vatSys's alert sound output, at vatSys's alert volume, or through
-    /// Windows' default output if that's not available. Generated in memory: nothing is read from or
-    /// written to disk. Calls queue in order on a background task, never blocking vatSys.
+    /// for refused). They use vatSys's alert output, or its configured primary output if the speaker route
+    /// is unavailable, and Windows' default output only if vatSys audio is unavailable. Generated in memory:
+    /// nothing is read from or written to disk. Calls queue in order on a background task, never blocking vatSys.
     /// </summary>
     internal sealed class AlertPlayer
     {
@@ -21,6 +21,9 @@ namespace AFVReplay.Handoff
         private Task queue = Task.CompletedTask;
         private DateTime playingUntilUtc;
         private bool reportedFallback;
+
+        /// <summary>0..1, applied on top of vatSys's alert volume.</summary>
+        public float Volume { get; set; } = 1f;
 
         /// <summary>For tests: replaces the actual playing. Gets the tone and its length.</summary>
         internal Action<AlertTone, TimeSpan> PlayOverride;
@@ -47,14 +50,15 @@ namespace AFVReplay.Handoff
             try
             {
                 if (PlayOverride != null) { PlayOverride(tone, Length); return; }
-                string why = TryVatSys(tone);
+                float volume = Volume;
+                string why = TryVatSys(tone, volume);
                 if (why == null) return;
                 if (!reportedFallback)
                 {
                     reportedFallback = true;
-                    Diag.UserError("Say Again: handoff tones are playing through Windows' default output, not vatSys's alert output (" + why + ").");
+                    Diag.UserError("Say Again: handoff tones are playing through Windows' default output, not vatSys audio (" + why + ").");
                 }
-                using (var wav = Wav(tone, 48000, 2))
+                using (var wav = Wav(tone, 48000, 2, volume))
                 using (var player = new SoundPlayer(wav))
                     player.PlaySync();
             }
@@ -65,13 +69,13 @@ namespace AFVReplay.Handoff
         }
 
         /// <summary>Plays through vatSys. Returns null on success, otherwise why not.</summary>
-        private static string TryVatSys(AlertTone tone)
+        private static string TryVatSys(AlertTone tone, float volume)
         {
             var format = VatSysBridge.GetAlertFormat();
             if (format == null) return VatSysBridge.ValidateAlertSound() ?? "vatSys audio not started";
             try
             {
-                VatSysBridge.PlayAlertSound(Samples(tone, format.Value.rate, format.Value.channels), format.Value.rate, format.Value.channels);
+                VatSysBridge.PlayAlertSound(Samples(tone, format.Value.rate, format.Value.channels, volume), format.Value.rate, format.Value.channels);
                 return null;
             }
             catch (Exception ex)
@@ -95,7 +99,7 @@ namespace AFVReplay.Handoff
         }
 
         /// <summary>Two 110 ms tones, 45 ms apart, with soft second and third harmonics: interleaved float samples.</summary>
-        internal static float[] Samples(AlertTone tone, int sampleRate, int channels)
+        internal static float[] Samples(AlertTone tone, int sampleRate, int channels, float volume = 1f)
         {
             var freqs = Frequencies(tone);
             int toneSamples = sampleRate * ToneMs / 1000;
@@ -110,7 +114,7 @@ namespace AFVReplay.Handoff
                     double envelope = Math.Min(1.0, Math.Min(i / 40.0, (toneSamples - i) / 40.0));
                     double phase = 2.0 * Math.PI * freqs[t] * i / sampleRate;
                     double sample = (Math.Sin(phase) + 0.25 * Math.Sin(2 * phase) + 0.10 * Math.Sin(3 * phase)) * envelope;
-                    float v = (float)(sample * 14000 / 32768.0);
+                    float v = (float)(sample * 14000 / 32768.0 * volume);
                     for (int c = 0; c < channels; c++) data[frame * channels + c] = v;
                 }
                 if (t < freqs.Length - 1) frame += gapSamples; // silence
@@ -119,9 +123,9 @@ namespace AFVReplay.Handoff
         }
 
         /// <summary>The tone as a 16-bit WAV in memory, for Windows' default output.</summary>
-        internal static MemoryStream Wav(AlertTone tone, int sampleRate, short channels)
+        internal static MemoryStream Wav(AlertTone tone, int sampleRate, short channels, float volume = 1f)
         {
-            var samples = Samples(tone, sampleRate, channels);
+            var samples = Samples(tone, sampleRate, channels, volume);
             var stream = new MemoryStream();
             using (var w = new BinaryWriter(stream, Encoding.ASCII, true))
             {

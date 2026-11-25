@@ -14,7 +14,7 @@ namespace AFVReplay.UI
     {
         /// <summary>Receiving = the colour a VSCS frequency button shows while receiving (used while a replay plays).</summary>
         public enum Faces { Normal, Selected, Depressed, Receiving }
-        public enum Arrows { None, Up, Down, Play }
+        public enum Arrows { None, Up, Down, Play, PlayPause }
 
         private readonly Font mainFont = new Font(MMI.eurofont_winsml, FontStyle.Bold);
         private readonly Font subFont = new Font(MMI.eurofont_winverysml, FontStyle.Bold);
@@ -89,22 +89,35 @@ namespace AFVReplay.UI
                 int cy = withSub ? top.Bottom - 9 : top.Y + top.Height / 2;
                 if (arrow == Arrows.Play) cy -= withSub ? 7 : 3; // room for its underline (and the subtext)
                 const int s = 9; // half-size
+                const int pauseBarWidth = 4, symbolGap = 3;
+                int playPauseLeft = 0;
                 Point[] tri;
                 switch (arrow)
                 {
                     // Same size as the play symbol, turned: 18 wide, 14 tall.
                     case Arrows.Up: tri = new[] { new Point(cx - s, cy + 7), new Point(cx + s, cy + 7), new Point(cx, cy - 7) }; break;
                     case Arrows.Down: tri = new[] { new Point(cx - s, cy - 7), new Point(cx + s, cy - 7), new Point(cx, cy + 7) }; break;
+                    case Arrows.PlayPause:
+                        int iconWidth = 2 * s + 2 * pauseBarWidth + 2 * symbolGap;
+                        playPauseLeft = cx - iconWidth / 2;
+                        tri = new[] { new Point(playPauseLeft, cy - s), new Point(playPauseLeft, cy + s), new Point(playPauseLeft + 2 * s, cy) };
+                        break;
                     default: tri = new[] { new Point(cx - s / 2 - 1, cy - s), new Point(cx - s / 2 - 1, cy + s), new Point(cx + s, cy) }; break; // play
                 }
                 using (var b = new SolidBrush(colour))
                 {
                     g.FillPolygon(b, tri);
                     if (arrow == Arrows.Play) g.FillRectangle(b, cx - s, cy + s + 3, 2 * s, 2); // underlined play
+                    if (arrow == Arrows.PlayPause)
+                    {
+                        int barsLeft = playPauseLeft + 2 * s + symbolGap;
+                        g.FillRectangle(b, barsLeft, cy - s, pauseBarWidth, 2 * s);
+                        g.FillRectangle(b, barsLeft + pauseBarWidth + symbolGap, cy - s, pauseBarWidth, 2 * s);
+                    }
                 }
                 if (withSub)
                 {
-                    var bottom = new Rectangle(r.X, top.Bottom, r.Width, r.Height - top.Height);
+                    var bottom = new Rectangle(r.X, top.Bottom + 3, r.Width, r.Height - top.Height - 3);
                     TextRenderer.DrawText(g, subText, Fit(g, subText, subFont, r.Width - 4), bottom, colour,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.Top);
                 }

@@ -358,13 +358,20 @@ namespace AFVReplay.VatSys
             return new CheckBox { Appearance = Appearance.Button, FlatStyle = FlatStyle.Flat, TextAlign = System.Drawing.ContentAlignment.MiddleCenter };
         }
 
-        // Optional: vatSys's alert sound output, for handoff tones. If any of this changes, the tones play
-        // through Windows' default output instead (see ValidateAlertSound).
+        // Optional: vatSys's alert sound output, for handoff tones.
         private static readonly FieldInfo AudioInstance = typeof(vatsys.Audio).GetField("Instance", Stat);
         private static readonly PropertyInfo AudioAlertEngine = typeof(vatsys.Audio).GetProperty("AlertSoundsEngine", Inst);
+        private static readonly PropertyInfo AudioVscsEngine = typeof(vatsys.Audio).GetProperty("VSCSSoundsEngine", Inst);
+        private static readonly PropertyInfo AudioAdditionalDevices = typeof(vatsys.Audio).GetProperty("AdditionalDevices", Inst);
+        private static readonly Type AudioDevicePairType = VatSysAssembly.GetType("vatsys.AudioDevicePair");
+        private static readonly PropertyInfo AudioDevicePairSpeaker = AudioDevicePairType?.GetProperty("Speaker", Inst);
+        private static readonly PropertyInfo AudioDevicePairOutput = AudioDevicePairType?.GetProperty("Output", Inst);
+        private static readonly MethodInfo AudioDeviceExists = VatSysAssembly.GetType("vatsys.AudioDevice")?.GetMethod("Exists", Inst);
         private static readonly Type CachedSoundType = VatSysAssembly.GetType("vatsys.CachedSound");
         private static readonly MethodInfo AudioPlayAlertSound = CachedSoundType == null ? null
             : typeof(vatsys.Audio).GetMethod("PlayAlertSound", Inst, null, new[] { CachedSoundType, typeof(bool) }, null);
+        private static readonly MethodInfo AudioPlayVscsSound = CachedSoundType == null ? null
+            : typeof(vatsys.Audio).GetMethod("PlayVSCSSound", Inst, null, new[] { CachedSoundType, typeof(bool) }, null);
         private static readonly Type PlaybackEngineType = VatSysAssembly.GetType("vatsys.AudioPlaybackEngine");
         private static readonly FieldInfo PlaybackEngineFormat = PlaybackEngineType?.GetField("waveFormat", Inst);
         // CachedSound only loads from a file; ours is made in memory by filling in its properties' fields.
@@ -379,7 +386,13 @@ namespace AFVReplay.VatSys
             void Check(object member, string name) { if (member == null) missing.Add(name); }
             Check(AudioInstance, "Audio.Instance");
             Check(AudioAlertEngine, "Audio.AlertSoundsEngine");
+            Check(AudioVscsEngine, "Audio.VSCSSoundsEngine");
+            Check(AudioAdditionalDevices, "Audio.AdditionalDevices");
+            Check(AudioDevicePairSpeaker, "AudioDevicePair.Speaker");
+            Check(AudioDevicePairOutput, "AudioDevicePair.Output");
+            Check(AudioDeviceExists, "AudioDevice.Exists");
             Check(AudioPlayAlertSound, "Audio.PlayAlertSound");
+            Check(AudioPlayVscsSound, "Audio.PlayVSCSSound");
             Check(PlaybackEngineFormat, "AudioPlaybackEngine.waveFormat");
             Check(CachedSoundData, "CachedSound.AudioData");
             Check(CachedSoundFormat, "CachedSound.WaveFormat");
@@ -396,7 +409,7 @@ namespace AFVReplay.VatSys
             if (ValidateAlertSound() != null) return null;
             var audio = AudioInstance.GetValue(null);
             if (audio == null) return null;
-            var engine = AudioAlertEngine.GetValue(audio);
+            var engine = AlertUsesPrimaryOutput(audio) ? AudioVscsEngine.GetValue(audio) : AudioAlertEngine.GetValue(audio);
             if (engine == null) return null;
             if (!(PlaybackEngineFormat.GetValue(engine) is WaveFormat f) || f.SampleRate <= 0 || f.Channels <= 0) return null;
             return (f.SampleRate, f.Channels);
@@ -406,7 +419,36 @@ namespace AFVReplay.VatSys
         public static void PlayAlertSound(float[] samples, int rate, int channels)
         {
             var audio = AudioInstance.GetValue(null) ?? throw new InvalidOperationException("vatSys audio not started");
-            AudioPlayAlertSound.Invoke(audio, new[] { MakeCachedSound(samples, rate, channels), (object)false });
+            var play = AlertUsesPrimaryOutput(audio) ? AudioPlayVscsSound : AudioPlayAlertSound;
+            play.Invoke(audio, new[] { MakeCachedSound(samples, rate, channels), (object)false });
+        }
+
+        private static bool AlertUsesPrimaryOutput(object audio)
+        {
+            var devices = AudioAdditionalDevices.GetValue(audio) as System.Collections.IEnumerable;
+            var speakerRoutes = new List<bool>();
+            if (devices != null)
+            {
+                foreach (var device in devices)
+                {
+                    if (device == null || !(bool)AudioDevicePairSpeaker.GetValue(device)) continue;
+                    var output = AudioDevicePairOutput.GetValue(device);
+                    speakerRoutes.Add(output != null && (bool)AudioDeviceExists.Invoke(output, null));
+                }
+            }
+            return ShouldUsePrimaryOutputForAlert(speakerRoutes);
+        }
+
+        internal static bool ShouldUsePrimaryOutputForAlert(IEnumerable<bool> speakerRoutesAvailable)
+        {
+            bool hasSpeakerRoute = false;
+            if (speakerRoutesAvailable == null) return false;
+            foreach (bool available in speakerRoutesAvailable)
+            {
+                hasSpeakerRoute = true;
+                if (available) return false;
+            }
+            return hasSpeakerRoute;
         }
 
         /// <summary>A vatSys CachedSound holding these samples (as if loaded from a float WAV file).</summary>

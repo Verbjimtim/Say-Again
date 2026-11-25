@@ -100,6 +100,11 @@ namespace AFVReplay.Tests
 
         internal static void HandoffTonesPlayThroughVatSys()
         {
+            Assert(VatSysBridge.ShouldUsePrimaryOutputForAlert(new[] { false }), "missing speaker route uses vatSys's primary output");
+            Assert(!VatSysBridge.ShouldUsePrimaryOutputForAlert(new[] { true }), "available speaker route keeps vatSys's alert output");
+            Assert(!VatSysBridge.ShouldUsePrimaryOutputForAlert(new bool[0]), "no speaker route keeps vatSys's alert output");
+            Assert(!VatSysBridge.ShouldUsePrimaryOutputForAlert(new[] { false, true }), "an available speaker route keeps vatSys's alert output");
+
             // The tones: two 110 ms tones 45 ms apart, rising / falling / flat.
             var rising = AlertPlayer.Samples(AlertTone.Incoming, 44100, 2);
             int frames = rising.Length / 2;
@@ -111,6 +116,9 @@ namespace AFVReplay.Tests
             Assert(Crossings(rising, 0, toneFrames * 2) < Crossings(rising, rising.Length - toneFrames * 2, rising.Length), "incoming rises");
             var falling = AlertPlayer.Samples(AlertTone.Accepted, 44100, 2);
             Assert(Crossings(falling, 0, toneFrames * 2) > Crossings(falling, falling.Length - toneFrames * 2, falling.Length), "accepted falls");
+            var halfVolume = AlertPlayer.Samples(AlertTone.Incoming, 44100, 2, 0.5f);
+            Assert(Math.Abs(halfVolume.Max() - rising.Max() / 2) < 0.0001, "alert volume scales samples");
+            Assert(AlertPlayer.Samples(AlertTone.Incoming, 44100, 2, 0).All(s => s == 0), "zero alert volume is silent");
 
             // A sound vatSys can play: built in memory, the same shape as one vatSys loads from a file.
             Assert(VatSysBridge.ValidateAlertSound() == null, "alert bridge missing: " + VatSysBridge.ValidateAlertSound());
@@ -135,7 +143,12 @@ namespace AFVReplay.Tests
         {
             var s = new ReplaySettings();
             Assert(!s.HandoffAlert, "off by default");
+            Assert(s.HandoffVolumePercent == 100, "handoff volume defaults to current level");
             Assert(s.HandoffRepeat == TimeSpan.FromSeconds(5), "repeats every 5 s by default");
+            s.HandoffVolumePercent = -1; s.Normalise();
+            Assert(s.HandoffVolumePercent == 0, "handoff volume has a zero minimum");
+            s.HandoffVolumePercent = 101; s.Normalise();
+            Assert(s.HandoffVolumePercent == 100, "handoff volume is capped at 100%");
             s.HandoffRepeatSeconds = 99; s.Normalise();
             Assert(s.HandoffRepeatSeconds == 10, "capped at 10 s");
             s.HandoffRepeatSeconds = 0; s.Normalise();
@@ -144,12 +157,14 @@ namespace AFVReplay.Tests
             var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "afvreplay-test-" + Guid.NewGuid() + ".xml");
             try
             {
-                new ReplaySettings { HandoffAlert = true, HandoffRepeatSeconds = 7 }.Save(path);
+                new ReplaySettings { HandoffAlert = true, HandoffVolumePercent = 65, HandoffRepeatSeconds = 7 }.Save(path);
                 var loaded = ReplaySettings.Load(path);
-                Assert(loaded.HandoffAlert && loaded.HandoffRepeatSeconds == 7, "saved");
+                Assert(loaded.HandoffAlert && loaded.HandoffVolumePercent == 65 && loaded.HandoffRepeatSeconds == 7, "saved");
             }
             finally { System.IO.File.Delete(path); }
 
+            var plugin = new ReplayPlugin(new ReplaySettings { HandoffVolumePercent = 35 });
+            Assert(Math.Abs(plugin.Alerts.Volume - 0.35f) < 0.001f, "handoff volume applied to alert player");
             Assert(UI.VscsInjector.HandoffButtonBounds(2) == new System.Drawing.Rectangle(3 + 6 * 86 - 1, 3 + 66 - 1, 82, 62), "where Matt's plugin had it");
         }
 
@@ -226,12 +241,20 @@ namespace AFVReplay.Tests
 
             Assert(Rows(calls) == "1 | 2 | 3 | 4 | 5", "no AFK: just the calls");
             Assert(Rows(calls, away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4 | Away from Keyboard 0402Z | 5", "both lines: " + Rows(calls, away));
-            Assert(Rows(calls.Take(4).ToList(), away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4", "the call before AFK expired: Away goes");
-            Assert(Rows(calls.Skip(1).ToList(), away) == "2 | 3 | 4 | Away from Keyboard 0402Z | 5", "nothing after Back yet: Back doesn't show");
+            Assert(Rows(calls.Take(4).ToList(), away) == "1 | Back at Keyboard 0426Z | 2 | 3 | 4 | Away from Keyboard 0402Z",
+                "latest period markers remain visible when calls on either side expire");
+            Assert(Rows(calls.Skip(1).ToList(), away) == "Back at Keyboard 0426Z | 2 | 3 | 4 | Away from Keyboard 0402Z | 5",
+                "latest period markers remain visible without calls on either side");
             Assert(Rows(calls, new AfkPeriod(t.AddMinutes(-29), null)) == "1 | 2 | 3 | 4 | Away from Keyboard 0402Z | 5", "still AFK: Away only");
             Assert(Rows(calls, new AfkPeriod(t.AddMinutes(-15), t.AddMinutes(-10))) == "1 | 2 | Back at Keyboard 0421Z | Away from Keyboard 0416Z | 3 | 4 | 5",
                 "away with no calls: the two lines together");
-            Assert(Rows(new Clip[0], away) == "" && Rows(new[] { calls[0] }, away) == "1", "never on its own");
+            Assert(Rows(new Clip[0], away) == "Back at Keyboard 0426Z | Away from Keyboard 0402Z" &&
+                   Rows(new[] { calls[0] }, away) == "1 | Back at Keyboard 0426Z | Away from Keyboard 0402Z",
+                   "the latest period is shown even without calls");
+            var previous = new AfkPeriod(t.AddMinutes(-60), t.AddMinutes(-40));
+            var current = new AfkPeriod(t.AddMinutes(-10), null);
+            Assert(Rows(new Clip[0], previous, current) == "Away from Keyboard 0421Z",
+                "older periods still need calls on both sides");
             Assert(new AfkMarker(true, t).Equals(new AfkMarker(true, t)) && !new AfkMarker(true, t).Equals(new AfkMarker(false, t)), "same marker each refresh");
 
             // AFK records when it was on.

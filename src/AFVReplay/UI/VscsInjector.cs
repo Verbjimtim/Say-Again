@@ -35,6 +35,10 @@ namespace AFVReplay.UI
     /// so it always fits.</item>
     /// <item>While a call replays and the page isn't open, Say Again shows who/where in the VSCS receiving colour;
     /// right click stops it.</item>
+    /// <item>When a station calls over your transmission, Say Again shows "Blocked" and who, in the VSCS
+    /// frequency warning colour (see <see cref="OverYouAlert"/>); right click dismisses it.</item>
+    /// <item>While that call is actually going on, the blocked frequency's own button flashes red ("BLOCKED"
+    /// under its frequency), drawn on top of vatSys's; clicks go through to vatSys's button.</item>
     /// <item>The page closes only when vatSys changes page (Setup, Coord, Text or a frequency button);
     /// clicks on blank VSCS space leave it open.</item>
     /// </list>
@@ -47,6 +51,10 @@ namespace AFVReplay.UI
         private Control panel;
         private VscsButton menuButton;
         private VscsButton handoffButton;
+        private readonly System.Collections.Generic.List<VscsButton> blockedButtons = new System.Collections.Generic.List<VscsButton>();
+
+        /// <summary>How long each on and off phase of the red flash lasts.</summary>
+        internal static readonly TimeSpan FlashPhase = TimeSpan.FromMilliseconds(400);
         private Form sizedWindow;
         private Size? originalMinimum;
         private SayAgainPage page;
@@ -67,6 +75,12 @@ namespace AFVReplay.UI
         }
 
         public void Start() { timer.Start(); Sync(); }
+
+        /// <summary>For tests: the red flashing buttons over blocked frequencies (shown or not this phase).</summary>
+        internal System.Collections.Generic.IReadOnlyList<VscsButton> BlockedButtons => blockedButtons;
+
+        /// <summary>For tests: the clock the flash phase follows.</summary>
+        internal Func<DateTime> Clock = () => DateTime.UtcNow;
 
         internal bool PageOpen => pageOpen;
 
@@ -127,9 +141,13 @@ namespace AFVReplay.UI
                 var clip = plugin.Player.PlayingClip ?? plugin.CoordPlayer.PlayingClip;
                 bool paused = plugin.Player.IsPaused || plugin.CoordPlayer.IsPaused;
 
+                var overYou = plugin.OverYouNow;
+
                 void ShowSayAgain(VscsButton b)
                 {
-                    if (clip != null && !pageOpen)
+                    if (overYou != null && clip == null && !pageOpen)
+                        b.Set("Blocked", OverYouText(overYou.Value), VscsButton.Faces.Warning, false);
+                    else if (clip != null && !pageOpen)
                         b.Set(SayAgainPage.Who(clip), paused ? "Paused" : SayAgainPage.Where(clip),
                               paused ? VscsButton.Faces.Depressed : VscsButton.Faces.Receiving, false);
                     else
@@ -141,6 +159,8 @@ namespace AFVReplay.UI
                 menuButton.Bounds = SayAgainButtonBounds(menuCol);
                 ShowSayAgain(menuButton);
                 menuButton.BringToFront();
+
+                ShowBlockedFrequencies();
 
                 // Handoff Alert's on/off button on vatSys's Setup page, where Matt's plugin had it.
                 handoffButton.Bounds = HandoffButtonBounds(menuCol);
@@ -170,12 +190,13 @@ namespace AFVReplay.UI
             panel = p;
             menuButton = new VscsButton { Text = "Say\nAgain", Visible = false };
             menuButton.Pressed += (s, e) => OpenPage();
-            menuButton.RightPressed += (s, e) => plugin.StopAll(); // dismiss a replay
+            menuButton.RightPressed += (s, e) => { plugin.StopAll(); plugin.DismissOverYou(); }; // dismiss a replay or Blocked
             panel.Controls.Add(menuButton);
             handoffButton = new VscsButton { Text = "Handoff Alert", Visible = false };
             handoffButton.Pressed += (s, e) => { plugin.ToggleHandoffAlert(); ShowHandoffButton(); };
             panel.Controls.Add(handoffButton);
             panel.Invalidated += PanelInvalidated; // shows/hides it as soon as vatSys changes page
+            blockedButtons.Clear();
             page = new SayAgainPage(plugin) { Visible = false };
             panel.Controls.Add(page);
             // No click handling on the VSCS itself: blank space does nothing. The page closes only when
@@ -186,13 +207,14 @@ namespace AFVReplay.UI
         {
             RestoreMinimumHeight();
             if (panel != null && !panel.IsDisposed) panel.Invalidated -= PanelInvalidated;
-            foreach (var c in new Control[] { menuButton, handoffButton, page })
+            foreach (var c in new Control[] { menuButton, handoffButton, page }.Concat(blockedButtons))
             {
                 if (c == null || c.IsDisposed) continue;
                 try { if (c.InvokeRequired) c.BeginInvoke((MethodInvoker)c.Dispose); else c.Dispose(); } catch { }
             }
             menuButton = null;
             handoffButton = null;
+            blockedButtons.Clear();
             page = null;
             panel = null;
             pageOpen = false;
@@ -204,6 +226,50 @@ namespace AFVReplay.UI
         /// </summary>
         internal static Rectangle HandoffButtonBounds(int menuColumn) =>
             new Rectangle(VscsLayout.ColumnX(menuColumn + 4) - 1, VscsLayout.RowY(1) - 1, VscsLayout.ButtonWidth + 2, VscsLayout.ButtonHeight + 2);
+
+        /// <summary>
+        /// Flashes each blocked frequency's button red: on for <see cref="FlashPhase"/>, then off (vatSys's own
+        /// button, showing ++PTT++) for the same, while the call over you lasts.
+        /// </summary>
+        private void ShowBlockedFrequencies()
+        {
+            var blocked = plugin.BlockedFrequencies;
+            var freqs = blocked.Length == 0 ? null : VscsFrequencies();
+            bool on = ((long)((Clock() - DateTime.MinValue).TotalMilliseconds / FlashPhase.TotalMilliseconds) & 1) == 0;
+            int used = 0;
+            if (freqs != null)
+            {
+                int rows = VscsLayout.Rows(panel.ClientSize.Height);
+                for (int i = 0; i < freqs.Count; i++)
+                {
+                    var f = freqs[i];
+                    if (f == null || Array.IndexOf(blocked, f.Frequency) < 0) continue;
+                    if (used == blockedButtons.Count)
+                    {
+                        var b = new VscsButton { ClickThrough = true, Visible = false };
+                        panel.Controls.Add(b);
+                        blockedButtons.Add(b);
+                    }
+                    var button = blockedButtons[used++];
+                    button.Bounds = VscsLayout.Cell(i / rows, i % rows); // vatSys fills each column top to bottom
+                    button.Set(VatSysBridge.VscsFrequencyButtonText(panel, f), "BLOCKED", VscsButton.Faces.Alarm, false);
+                    if (button.Visible != on) button.Visible = on;
+                    if (on) button.BringToFront();
+                }
+            }
+            for (int i = used; i < blockedButtons.Count; i++)
+                if (blockedButtons[i].Visible) blockedButtons[i].Visible = false;
+        }
+
+        private static System.Collections.Generic.List<vatsys.VSCSFrequency> VscsFrequencies()
+        {
+            try { return vatsys.Audio.VSCSFrequencies?.ToList(); }
+            catch { return null; }
+        }
+
+        /// <summary>"QFA123 118.500" under "Blocked".</summary>
+        internal static string OverYouText((string Callsign, string Where) o) =>
+            ((o.Callsign ?? "?") + " " + (o.Where ?? "")).Trim();
 
         internal static Rectangle SayAgainButtonBounds(int menuColumn)
         {

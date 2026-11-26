@@ -13,7 +13,7 @@ using NAudio.Wave;
 
 namespace AFVReplay.Tests
 {
-    internal static class Tests
+    internal static partial class Tests
     {
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -35,6 +35,12 @@ namespace AFVReplay.Tests
             Run(nameof(EndToEnd_TwoFrequenciesAtOnce), EndToEnd_TwoFrequenciesAtOnce);
             Run(nameof(EndToEnd_DuplicateTransceiversCollapsed), EndToEnd_DuplicateTransceiversCollapsed);
             Run(nameof(EndToEnd_ReceiverChangesAndUnhook), EndToEnd_ReceiverChangesAndUnhook);
+            Run(nameof(OverYou_CaughtSilentlyAndKept), OverYou_CaughtSilentlyAndKept);
+            Run(nameof(OverYou_RestPlaysAfterRelease), OverYou_RestPlaysAfterRelease);
+            Run(nameof(OverYou_OffLeavesAfvAlone), OverYou_OffLeavesAfvAlone);
+            Run(nameof(OverYou_OwnEchoAndOtherFrequenciesIgnored), OverYou_OwnEchoAndOtherFrequenciesIgnored);
+            Run(nameof(OverYou_UnhookMidTransmissionRemutes), OverYou_UnhookMidTransmissionRemutes);
+            Run(nameof(OverYou_AlertShowsAndTonesOnRelease), OverYou_AlertShowsAndTonesOnRelease);
             Run(nameof(ReplayRepeatsNewestAndPlaysIntoMix), ReplayRepeatsNewestAndPlaysIntoMix);
             Run(nameof(ReplayKeySkipsOwnAndFollowsNewest), ReplayKeySkipsOwnAndFollowsNewest);
             Run(nameof(SettingsRoundTripHasNoAudio), SettingsRoundTripHasNoAudio);
@@ -52,6 +58,15 @@ namespace AFVReplay.Tests
                     ? System.IO.Directory.GetDirectories(profiles).FirstOrDefault()
                     : null;
                 if (profile != null) SayAgainListShowsCallsFromBeforeOpening(profile);
+            });
+            Run(nameof(OverYou_BlockedFrequencyFlashesRed), () =>
+            {
+                var profiles = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "vatSys Files", "Profiles");
+                var profile = System.IO.Directory.Exists(profiles)
+                    ? System.IO.Directory.GetDirectories(profiles).FirstOrDefault()
+                    : null;
+                if (profile != null) OverYou_BlockedFrequencyFlashesRed(profile);
             });
             Run(nameof(RecordsAtEightKilohertz), RecordsAtEightKilohertz);
             Run(nameof(CoordLevelsQuietMic), CoordLevelsQuietMic);
@@ -241,6 +256,12 @@ namespace AFVReplay.Tests
             public readonly List<TransceiverDto> Transceivers = new List<TransceiverDto>();
             private readonly float[] block = new float[960];
 
+            /// <summary>vatSys's PTT, the Over You Alert setting and your callsign, as the hook sees them.</summary>
+            public volatile bool Tx;
+            public volatile bool CatchOverYou = true;
+            public string OwnCallsign = "ML-BIK_CTR";
+            public readonly List<OverYouEventArgs> OverYou = new List<OverYouEventArgs>();
+
             public Rig(params (ushort id, uint freq)[] receivers)
             {
                 AudioConfig.Instance.VhfEqualizer = EqualizerPresets.VHFEmulation2; // as vatSys sets it
@@ -248,7 +269,8 @@ namespace AFVReplay.Tests
                 foreach (var r in receivers) Transceivers.Add(new TransceiverDto { ID = r.id, Frequency = r.freq });
                 Ssp.UpdateTransceivers(Transceivers);
                 Finalizer = new ClipFinalizer(Store, ClipFinalizer.FormatFrequency);
-                Hook = new AudioHook(() => Ssp, Store, Finalizer, Player);
+                Hook = new AudioHook(() => Ssp, Store, Finalizer, Player, () => Tx, () => CatchOverYou, () => OwnCallsign);
+                Hook.OverYou += (s, e) => { lock (OverYou) OverYou.Add(e); };
                 Hook.Tick();
             }
 

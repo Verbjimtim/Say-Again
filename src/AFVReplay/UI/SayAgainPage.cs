@@ -439,7 +439,7 @@ namespace AFVReplay.UI
             row is Clip c ? MakeItem(c) : new ListViewItem(new[] { "", "", "", "" }) { Tag = row };
 
         private ListViewItem MakeItem(Clip c) =>
-            new ListViewItem(new[] { "", Where(c), c.CallsignText + (c.Blocked ? " (blocked)" : ""), c.IsSilent ? "silent" : $"{c.Duration.TotalSeconds:0.0}s" }) { Tag = c };
+            new ListViewItem(new[] { "", Where(c), c.CallsignText + (c.OverYou ? " (over you)" : c.Blocked ? " (blocked)" : ""), c.IsSilent ? "silent" : $"{c.Duration.TotalSeconds:0.0}s" }) { Tag = c };
 
         /// <summary>
         /// Brings the list in line with the calls kept, in place: new calls are inserted at the top,
@@ -586,9 +586,9 @@ namespace AFVReplay.UI
         }
 
         /// <summary>An On/Off row in vatSys's toggle-button style.</summary>
-        private CheckBox AddToggle(TableLayoutPanel t, string label, bool value, Action<bool> set)
+        private CheckBox AddToggle(TableLayoutPanel t, string label, bool value, Action<bool> set, string onText = "On", string offText = "Off")
         {
-            var toggle = Toggle(value, set);
+            var toggle = Toggle(value, set, onText, offText);
             var settingLabel = SettingLabel(label, maxWidth: 0);
             settingLabel.AutoSize = false;
             settingLabel.Size = new Size(SettingsToggleLabelWidth, toggle.Height);
@@ -607,7 +607,7 @@ namespace AFVReplay.UI
             return toggle;
         }
 
-        private CheckBox Toggle(bool value, Action<bool> set)
+        private CheckBox Toggle(bool value, Action<bool> set, string onText = "On", string offText = "Off")
         {
             var toggle = VatSysBridge.CreateToggleButton();
             toggle.Size = new Size(90, 19);
@@ -616,11 +616,11 @@ namespace AFVReplay.UI
             toggle.Margin = new Padding(2, 0, 2, 0);
             toggle.Anchor = AnchorStyles.Left;
             toggle.Checked = value;
-            toggle.Text = value ? "On" : "Off";
+            toggle.Text = value ? onText : offText;
             toggle.CheckedChanged += (o, e) =>
             {
                 set(toggle.Checked);
-                toggle.Text = toggle.Checked ? "On" : "Off";
+                toggle.Text = toggle.Checked ? onText : offText;
                 plugin.ApplySettings();
             };
             return toggle;
@@ -670,6 +670,14 @@ namespace AFVReplay.UI
             AddSlider(alerts, "Volume", 0, 100, s.HandoffVolumePercent, v => v + "%", v => s.HandoffVolumePercent = v, step: 5);
             AddSlider(alerts, "Repeat", ReplaySettings.RepeatOff, 10, s.HandoffRepeatSeconds,
                 v => v <= ReplaySettings.RepeatOff ? "Off" : v + " s", v => s.HandoffRepeatSeconds = v);
+            // Someone called while you were transmitting. Blocked: catch and keep the call. Blocked UI: Blocked on
+            // Say Again and the frequency flashing red. Blocked Tone: a tone, During the block or After you release.
+            // Each needs the one above it on, and is greyed out otherwise.
+            blockedToggle = AddToggle(alerts, "Blocked", s.OverYouAlert, v => { s.OverYouAlert = v; UpdateBlockedToggles(); });
+            blockedUiToggle = AddToggle(alerts, "Blocked UI", s.OverYouUi, v => s.OverYouUi = v);
+            blockedToneToggle = AddToggle(alerts, "Blocked Tone", s.OverYouTone, v => { s.OverYouTone = v; UpdateBlockedToggles(); });
+            toneTimingToggle = AddToggle(alerts, "Tone Timing", s.OverYouToneDuring, v => s.OverYouToneDuring = v, "During", "After");
+            UpdateBlockedToggles();
             plugin.SettingsChanged += SettingsChangedElsewhere;
 
             settingsPages = new[] { replay, media, alerts };
@@ -692,6 +700,19 @@ namespace AFVReplay.UI
         }
 
         private CheckBox handoffToggle;
+        private CheckBox blockedToggle, blockedUiToggle, blockedToneToggle, toneTimingToggle;
+
+        /// <summary>For tests: Blocked, Blocked UI, Blocked Tone, Tone Timing.</summary>
+        internal CheckBox[] BlockedToggles => new[] { blockedToggle, blockedUiToggle, blockedToneToggle, toneTimingToggle };
+
+        /// <summary>Blocked UI and Blocked Tone need Blocked; Tone Timing needs Blocked Tone too.</summary>
+        private void UpdateBlockedToggles()
+        {
+            var s = plugin.Settings;
+            if (blockedUiToggle != null) blockedUiToggle.Enabled = s.OverYouAlert;
+            if (blockedToneToggle != null) blockedToneToggle.Enabled = s.OverYouAlert;
+            if (toneTimingToggle != null) toneTimingToggle.Enabled = s.OverYouAlert && s.OverYouTone;
+        }
 
         /// <summary>The Setup page's Handoff Alert button was used: show the same on the Alerts tab.</summary>
         private void SettingsChangedElsewhere(object sender, EventArgs e)

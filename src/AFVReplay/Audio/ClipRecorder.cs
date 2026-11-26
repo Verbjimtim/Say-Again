@@ -15,6 +15,9 @@ namespace AFVReplay.Audio
         public List<string> Callsigns;
         public bool Blocked;
 
+        /// <summary>Some of it came in while you were transmitting (you were calling over each other).</summary>
+        public bool OverYou;
+
         /// <summary>Your own voice (PTT on frequency, or your side of a line).</summary>
         public bool IsOwn;
 
@@ -56,6 +59,7 @@ namespace AFVReplay.Audio
         private uint frequency;
         private readonly List<string> callsigns = new List<string>();
         private int maxSimultaneous;
+        private bool overYou;
         private volatile bool resetRequested;
 
         public ClipRecorder(Action<RawRecording> onComplete, Action<uint> onRxStart, Func<DateTime> clock = null)
@@ -88,6 +92,12 @@ namespace AFVReplay.Audio
                 state = State.Hangover;
                 hangoverLeft = HangoverSamples;
             }
+        }
+
+        /// <summary>The call being recorded is (partly) over your own transmission. Audio thread.</summary>
+        public void MarkOverYou()
+        {
+            if (state != State.Idle) overYou = true;
         }
 
         /// <summary>Called with every block the receiver produces (on the audio thread).</summary>
@@ -133,6 +143,7 @@ namespace AFVReplay.Audio
             rxSamples = 0;
             callsigns.Clear();
             maxSimultaneous = 0;
+            overYou = false;
             CopyPreRollInto();
             onRxStart?.Invoke(frequencyHz);
         }
@@ -140,6 +151,7 @@ namespace AFVReplay.Audio
         private void Finish(bool continueAfter)
         {
             var carryCallsigns = continueAfter ? callsigns.ToList() : null;
+            bool carryOverYou = continueAfter && overYou;
             if (rxSamples >= MinRxSamples)
             {
                 onComplete(new RawRecording
@@ -151,6 +163,7 @@ namespace AFVReplay.Audio
                     FrequencyHz = frequency,
                     Callsigns = callsigns.ToList(),
                     Blocked = maxSimultaneous > 1,
+                    OverYou = overYou,
                 });
             }
             else
@@ -168,6 +181,7 @@ namespace AFVReplay.Audio
                 state = State.Receiving;
                 callsigns.AddRange(carryCallsigns);
                 maxSimultaneous = 1;
+                overYou = carryOverYou;
             }
         }
 
@@ -178,6 +192,7 @@ namespace AFVReplay.Audio
             length = 0;
             rxSamples = 0;
             callsigns.Clear();
+            overYou = false;
             state = State.Idle;
             ClearPreRoll();
         }

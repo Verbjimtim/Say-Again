@@ -12,8 +12,9 @@ namespace AFVReplay.Audio
 
         public Clip(long id, DateTime startUtc, DateTime endUtc, uint frequencyHz, string frequencyName,
                     IReadOnlyList<string> callsigns, bool blocked, List<byte[]> frames, int sampleCount, bool isOwn = false,
-                    bool isSilent = false)
+                    bool isSilent = false, bool overYou = false)
         {
+            OverYou = overYou;
             IsSilent = isSilent;
             IsOwn = isOwn;
             Id = id;
@@ -37,6 +38,9 @@ namespace AFVReplay.Audio
 
         /// <summary>More than one station was transmitting at once on this frequency.</summary>
         public bool Blocked { get; }
+
+        /// <summary>Came in while you were transmitting: you and they called over each other (you heard none of it live).</summary>
+        public bool OverYou { get; }
 
         public int SampleCount { get; }
         public TimeSpan Duration => TimeSpan.FromSeconds(SampleCount / (double)AudioFormat.SampleRate);

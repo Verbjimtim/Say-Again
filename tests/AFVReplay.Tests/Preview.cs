@@ -158,12 +158,12 @@ namespace AFVReplay.Tests
             return 0;
         }
 
-        private static void Pump(int n)
+        internal static void Pump(int n)
         {
             for (int i = 0; i < n; i++) { Application.DoEvents(); System.Threading.Thread.Sleep(25); }
         }
 
-        private static void Capture(Form w, string png)
+        internal static void Capture(Form w, string png)
         {
             using (var bmp = new Bitmap(w.Width, w.Height))
             {

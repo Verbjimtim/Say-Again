@@ -7,7 +7,7 @@ using AFVReplay.VatSys;
 
 namespace AFVReplay.Handoff
 {
-    internal enum AlertTone { Incoming, Accepted, Refused }
+    internal enum AlertTone { Incoming, Accepted, Refused, OverYou }
 
     /// <summary>
     /// Plays the handoff tones (Matt's: rising for a handoff to you, falling for your handoff accepted, flat
@@ -94,6 +94,7 @@ namespace AFVReplay.Handoff
             {
                 case AlertTone.Accepted: return new[] { 1175, 880 }; // falling
                 case AlertTone.Refused: return new[] { 440, 440 };   // flat
+                case AlertTone.OverYou: return new[] { 1320, 1320 }; // flat, high: someone called over you
                 default: return new[] { 880, 1175 };                 // rising
             }
         }

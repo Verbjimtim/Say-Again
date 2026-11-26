@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- New: **Blocked** alerts (Settings → Alerts). AFV silently drops any call on a frequency while you're transmitting on it, so you never knew you'd been blocked. Say Again now catches those calls. You still hear nothing while you transmit, but the call is kept so Replay plays it, shown as *(over you)* in the Say Again list.
+  - **Blocked** (on by default): catches and keeps the calls. Turn it off to leave AFV's behaviour untouched; the settings below then do nothing.
+  - **Blocked UI** (on by default): while the other station is calling over you, that frequency's VSCS button flashes red with **BLOCKED** under it (clicks still reach vatSys's button), and the Say Again button shows **Blocked** and who called until a few seconds after you release PTT (right click dismisses it).
+  - **Blocked Tone** (off by default): a short high double tone. **Tone Timing** sets when: **During** (default) as soon as you're blocked, or **After** when you release PTT. With speakers rather than a headset, *During* can be picked up by your mic.
+
 ## v0.2.3
 
 - Adjusted the width/height of the primary buttons to exactly match the default VSCS button size (some were 2px smaller)

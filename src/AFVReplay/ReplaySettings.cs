@@ -48,7 +48,24 @@ namespace AFVReplay
         /// <summary>Handoff Alert: tones for a handoff to you, your handoff accepted, and your handoff refused. Off by default.</summary>
         public bool HandoffAlert { get; set; }
 
-        /// <summary>Handoff alert volume, 0-100 percent of the current level.</summary>
+        /// <summary>
+        /// Blocked (Over You Alert): catch a station calling on your frequency while you transmit (AFV otherwise
+        /// drops it unheard) and keep the call for replay. On by default. Off leaves AFV untouched, and with it
+        /// <see cref="OverYouUi"/> and <see cref="OverYouTone"/>.
+        /// </summary>
+        public bool OverYouAlert { get; set; } = true;
+
+        /// <summary>Blocked UI: "Blocked" on the Say Again button and the blocked frequency flashing red. On by default.</summary>
+        public bool OverYouUi { get; set; } = true;
+
+        /// <summary>Blocked Tone: a tone when you're blocked. Off by default.</summary>
+        public bool OverYouTone { get; set; }
+
+        /// <summary>Tone timing: true = as soon as you're blocked (while still transmitting), false = when you release PTT.
+        /// During by default. Only applies while <see cref="OverYouTone"/> is on.</summary>
+        public bool OverYouToneDuring { get; set; } = true;
+
+        /// <summary>Alert volume (handoff and over-you tones), 0-100 percent of the current level.</summary>
         public int HandoffVolumePercent { get; set; } = 100;
 
         /// <summary>Seconds between repeats while a handoff to you waits: 3-10, or <see cref="RepeatOff"/>.</summary>

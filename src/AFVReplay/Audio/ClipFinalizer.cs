@@ -118,7 +118,7 @@ namespace AFVReplay.Audio
             catch { name = FormatFrequency(rec.FrequencyHz); }
 
             var clip = new Clip(store.NextId(), rec.StartUtc, rec.EndUtc, rec.FrequencyHz, name,
-                                rec.Callsigns.AsReadOnly(), rec.Blocked, frames, rec.Length, rec.IsOwn);
+                                rec.Callsigns.AsReadOnly(), rec.Blocked, frames, rec.Length, rec.IsOwn, overYou: rec.OverYou);
             clip.SpeechLevel = AudioLevel.Speech(rec.Pcm, rec.Length);
             rmsById[clip.Id] = rms;
             store.Add(clip);

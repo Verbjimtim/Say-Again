@@ -12,8 +12,10 @@ namespace AFVReplay.UI
     /// </summary>
     internal sealed class VscsButton : Control
     {
-        /// <summary>Receiving = the colour a VSCS frequency button shows while receiving (used while a replay plays).</summary>
-        public enum Faces { Normal, Selected, Depressed, Receiving }
+        /// <summary>Receiving = the colour a VSCS frequency button shows while receiving (used while a replay plays);
+        /// Warning = the VSCS frequency warning colour (a call came in over your transmission);
+        /// Alarm = the profile's emergency red (a frequency being called on over your transmission, flashing).</summary>
+        public enum Faces { Normal, Selected, Depressed, Receiving, Warning, Alarm }
         public enum Arrows { None, Up, Down, Play, PlayPause }
 
         private readonly Font mainFont = new Font(MMI.eurofont_winsml, FontStyle.Bold);
@@ -74,6 +76,8 @@ namespace AFVReplay.UI
             // pressed ones (held down, active, or a toggle that's on) are the darker "depressed" colour (#829292).
             bool down = sunk || mouseDown || face == Faces.Depressed;
             var id = face == Faces.Receiving ? Colours.Identities.VSCSReceivingFrequency
+                   : face == Faces.Warning ? Colours.Identities.VSCSFrequencyWarning
+                   : face == Faces.Alarm ? Colours.Identities.Emergency
                    : face == Faces.Selected ? Colours.Identities.VSCSButtonSelected
                    : down ? Colours.Identities.VSCSButtonDepressed
                    : Colours.Identities.VSCSBackground;
@@ -176,6 +180,16 @@ namespace AFVReplay.UI
             }
             fittedKey = key;
             return fitted ?? font;
+        }
+
+        /// <summary>Mouse clicks go to whatever is underneath (vatSys's own button), as if this weren't there.</summary>
+        public bool ClickThrough { get; set; }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCHITTEST = 0x84, HTTRANSPARENT = -1;
+            if (ClickThrough && m.Msg == WM_NCHITTEST) { m.Result = (IntPtr)HTTRANSPARENT; return; }
+            base.WndProc(ref m);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)

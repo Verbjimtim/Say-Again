@@ -21,19 +21,32 @@ namespace AFVReplay.Audio
         private readonly ReplayPlayer player;
         private readonly Dictionary<ReceiverSampleProvider, ReceiverTap> taps = new Dictionary<ReceiverSampleProvider, ReceiverTap>();
         private readonly object tickLock = new object();
+        private readonly Func<bool> isTransmitting;
+        private readonly Func<bool> catchOverYou;
+        private readonly Func<string> ownCallsign;
         private Timer timer;
         private SoundcardSampleProvider current;
 
-        public AudioHook(Func<SoundcardSampleProvider> getSoundcard, ClipStore store, ClipFinalizer finalizer, ReplayPlayer player)
+        /// <param name="isTransmitting">True while you're transmitting (vatSys PTT). Null: calls over you aren't caught.</param>
+        /// <param name="catchOverYou">The setting for catching calls over you.</param>
+        /// <param name="ownCallsign">Your callsign.</param>
+        public AudioHook(Func<SoundcardSampleProvider> getSoundcard, ClipStore store, ClipFinalizer finalizer, ReplayPlayer player,
+                         Func<bool> isTransmitting = null, Func<bool> catchOverYou = null, Func<string> ownCallsign = null)
         {
             this.getSoundcard = getSoundcard;
             this.store = store;
             this.finalizer = finalizer;
             this.player = player;
+            this.isTransmitting = isTransmitting;
+            this.catchOverYou = catchOverYou;
+            this.ownCallsign = ownCallsign;
         }
 
         /// <summary>A new transmission has started on some frequency (raised on the audio thread).</summary>
         public event EventHandler<uint> RxStarted;
+
+        /// <summary>A station called on a frequency while you were transmitting on it (raised on the audio thread).</summary>
+        public event EventHandler<OverYouEventArgs> OverYou;
 
         public bool IsHooked => current != null;
 
@@ -41,6 +54,12 @@ namespace AFVReplay.Audio
 
         /// <summary>True while any frequency you're listening to is receiving a call.</summary>
         public bool IsReceiving { get { lock (tickLock) return taps.Values.Any(t => t.IsRecording); } }
+
+        /// <summary>Frequencies a station is calling on right now, over your transmission.</summary>
+        public uint[] CalledOverFrequencies()
+        {
+            lock (tickLock) return taps.Values.Where(t => t.IsCalledOver).Select(t => t.Receiver.Frequency).Distinct().ToArray();
+        }
 
         public void Start(TimeSpan interval)
         {
@@ -89,7 +108,7 @@ namespace AFVReplay.Audio
                     switch (sources[i])
                     {
                         case ReceiverSampleProvider receiver:
-                            var tap = new ReceiverTap(receiver, finalizer.Enqueue, OnRxStart);
+                            var tap = new ReceiverTap(receiver, finalizer.Enqueue, OnRxStart, isTransmitting, catchOverYou, ownCallsign, OnOverYou);
                             sources[i] = tap;
                             taps[receiver] = tap;
                             break;
@@ -111,6 +130,8 @@ namespace AFVReplay.Audio
         }
 
         private void OnRxStart(uint frequencyHz) => RxStarted?.Invoke(this, frequencyHz);
+
+        private void OnOverYou(uint frequencyHz, string callsign) => OverYou?.Invoke(this, new OverYouEventArgs(frequencyHz, callsign));
 
         /// <summary>Puts the original receivers back and removes the player.</summary>
         private void Unhook()
@@ -156,5 +177,12 @@ namespace AFVReplay.Audio
             timer?.Dispose();
             lock (tickLock) Unhook();
         }
+    }
+
+    internal sealed class OverYouEventArgs : EventArgs
+    {
+        public OverYouEventArgs(uint frequencyHz, string callsign) { FrequencyHz = frequencyHz; Callsign = callsign; }
+        public uint FrequencyHz { get; }
+        public string Callsign { get; }
     }
 }

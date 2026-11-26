@@ -317,6 +317,23 @@ namespace AFVReplay.VatSys
             VscsCurrentPage == null || panel == null ? null : VscsCurrentPage.GetValue(panel)?.ToString();
 
         private static readonly MethodInfo VscsSetPage = VscsPanelType?.GetMethod("SetPage", Inst);
+        private static readonly MethodInfo VscsFreqButtonText = VscsPanelType?.GetMethod("GetFreqButtonText", Inst, null,
+            new[] { typeof(vatsys.VSCSFrequency), typeof(bool), typeof(string).MakeByRefType() }, null);
+
+        /// <summary>The main text vatSys draws on a VSCS frequency button ("125.600"), or a fallback if that's unavailable.</summary>
+        internal static string VscsFrequencyButtonText(Control panel, vatsys.VSCSFrequency f)
+        {
+            try
+            {
+                if (VscsFreqButtonText != null && panel != null && VscsFreqButtonText.ReturnType == typeof(string))
+                {
+                    var args = new object[] { f, false, null };
+                    if (VscsFreqButtonText.Invoke(panel, args) is string text && text.Length > 0) return text;
+                }
+            }
+            catch { }
+            return AFVReplay.Audio.ClipFinalizer.FormatFrequency(f.Frequency);
+        }
 
         /// <summary>Switches the VSCS to one of its pages by name. Returns false if that isn't possible.</summary>
         internal static bool SetVscsPage(Control panel, string page)

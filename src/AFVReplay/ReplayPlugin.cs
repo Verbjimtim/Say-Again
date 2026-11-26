@@ -56,6 +56,35 @@ namespace AFVReplay
         /// <summary>Handoff Alert's tones.</summary>
         internal AlertPlayer Alerts { get; private set; }
 
+        /// <summary>Over You Alert: a station called while you were transmitting.</summary>
+        internal OverYouAlert OverYou { get; private set; }
+
+        /// <summary>Who called over you and on what, while the VSCS should show it; otherwise null.</summary>
+        internal (string Callsign, string Where)? OverYouNow => ShowOverYou ? OverYou.Current(DateTime.UtcNow) : null;
+
+        /// <summary>Blocked on and Blocked UI on.</summary>
+        private bool ShowOverYou => Settings.OverYouAlert && Settings.OverYouUi;
+
+        /// <summary>Blocked on and Blocked Tone on.</summary>
+        private bool ToneOverYou => Settings.OverYouAlert && Settings.OverYouTone;
+
+        internal void DismissOverYou() => OverYou.Dismiss();
+
+        /// <summary>For tests: stands in for the live AFV hook's <see cref="BlockedFrequencies"/>.</summary>
+        internal Func<uint[]> BlockedFrequenciesOverride;
+
+        /// <summary>Frequencies being called on over your transmission right now (their VSCS buttons flash red).</summary>
+        internal uint[] BlockedFrequencies
+        {
+            get
+            {
+                if (!ShowOverYou) return Array.Empty<uint>();
+                if (BlockedFrequenciesOverride != null) return BlockedFrequenciesOverride();
+                try { return hook?.CalledOverFrequencies() ?? Array.Empty<uint>(); }
+                catch { return Array.Empty<uint>(); }
+            }
+        }
+
         /// <summary>Raised when a setting is changed from outside the settings page (the Setup page's Handoff Alert button).</summary>
         internal event EventHandler SettingsChanged;
 
@@ -82,7 +111,7 @@ namespace AFVReplay
 
         /// <summary>Frequency calls kept since vatSys started: your transmissions / calls received.</summary>
         internal string TxRxText =>
-            finalizer == null ? "TX/RX: unavailable" : $"TX/RX: {finalizer.Transmitted}/{finalizer.Received}";
+            finalizer == null ? "TX/RX: unavailable" : $"TX/RX: {finalizer.Transmitted}/{finalizer.Received}" + (OverYou.Count > 0 ? $", {OverYou.Count} over you" : "");
 
         public ReplayPlugin()
         {
@@ -126,6 +155,7 @@ namespace AFVReplay
             CoordPlayer = new ReplayPlayer();
             CoordController = new ReplayController(CoordStore, CoordPlayer);
             Alerts = new AlertPlayer();
+            OverYou = new OverYouAlert();
             Afk = new AfkMode(hold => { Store.HoldNew = hold; CoordStore.HoldNew = hold; },
                 VatSysBridge.CanRequestBreak, VatSysBridge.RequestBreakOn, VatSysBridge.ToggleRequestBreak);
             // Only one replay at a time, so it's always clear what you're hearing.
@@ -156,12 +186,18 @@ namespace AFVReplay
             }
 
             finalizer = new ClipFinalizer(Store, VatSysBridge.FrequencyName);
-            hook = new AudioHook(VatSysBridge.GetSoundcardSampleProvider, Store, finalizer, Player);
+            hook = new AudioHook(VatSysBridge.GetSoundcardSampleProvider, Store, finalizer, Player,
+                isTransmitting: () => vatsys.Audio.Transmitting, catchOverYou: () => Settings.OverYouAlert,
+                ownCallsign: () => Network.Callsign);
             hook.RxStarted += (s, freq) => { if (Settings.StopOnNewCall) Player.Stop(); };
+            hook.OverYou += (s, e) => OnOverYou(e, vatsys.Audio.Transmitting);
             hook.Start(TimeSpan.FromMilliseconds(500));
 
-            // Never talk over yourself.
-            vatsys.Audio.TransmittingChanged += (s, e) => { if (vatsys.Audio.Transmitting) StopAll(); };
+            vatsys.Audio.TransmittingChanged += (s, e) =>
+            {
+                if (vatsys.Audio.Transmitting) StopAll(); // never talk over yourself
+                else OnTransmitEnded();
+            };
 
             StartCoord();
             StartMic();
@@ -170,8 +206,8 @@ namespace AFVReplay
             StartAfk();
 
             // Privacy: nothing survives a disconnect or shutdown.
-            AFV.Disconnected += (s, e) => { hook.ResetRecordings(); ownTx?.Reset(); };
-            Network.Disconnected += (s, e) => { hook.ResetRecordings(); ResetCoord(); };
+            AFV.Disconnected += (s, e) => { hook.ResetRecordings(); ownTx?.Reset(); OverYou.Reset(); };
+            Network.Disconnected += (s, e) => { hook.ResetRecordings(); ResetCoord(); OverYou.Reset(); };
             AppDomain.CurrentDomain.ProcessExit += (s, e) => Shutdown();
 
             poller = new InputPoller(() => VatSysBridge.MainForm, () => Controller.Press());
@@ -290,6 +326,24 @@ namespace AFVReplay
                 catch (Exception ex) { afkTimer.Stop(); Diag.UserError("Say Again: AFK stopped following Request Break.", ex); }
             };
             afkTimer.Start();
+        }
+
+        /// <summary>
+        /// A station called over your transmission (audio thread, once per transmission). With Blocked Tone on:
+        /// the tone plays now if the timing is During, otherwise when you release PTT.
+        /// </summary>
+        internal void OnOverYou(OverYouEventArgs e, bool stillTransmitting)
+        {
+            Diag.Info("call over your transmission caught");
+            bool releasedAlready = OverYou.Report(e.Callsign, ClipFinalizer.FormatFrequency(e.FrequencyHz), stillTransmitting, DateTime.UtcNow);
+            if (ToneOverYou && (releasedAlready || Settings.OverYouToneDuring)) Alerts.Play(AlertTone.OverYou);
+        }
+
+        /// <summary>PTT released: with Blocked Tone on and timing After, the tone if someone called over that transmission.</summary>
+        internal void OnTransmitEnded()
+        {
+            bool blocked = OverYou.TransmitEnded(DateTime.UtcNow);
+            if (blocked && ToneOverYou && !Settings.OverYouToneDuring) Alerts.Play(AlertTone.OverYou);
         }
 
         /// <summary>The Setup page's Handoff Alert button.</summary>

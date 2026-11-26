@@ -13,10 +13,31 @@ namespace AFVReplay.Audio
         /// Sets the app's volume to <paramref name="level"/> (0-1) of what it was before the first call,
         /// including any of its audio that has started since.
         /// </summary>
-        void Duck(float level);
+        /// <returns>How many of the app's audio sessions it lowered.</returns>
+        int Duck(float level);
 
         /// <summary>Puts back the volume it had before <see cref="Duck"/>.</summary>
         void Restore();
+
+        /// <summary>Whether the app is running and has audio to lower, without changing anything.</summary>
+        DiscordState Probe();
+    }
+
+    /// <summary>What Duck Discord can see, for the status line on the Media tab.</summary>
+    internal enum DiscordState
+    {
+        /// <summary>Duck Discord is switched off.</summary>
+        Off,
+        /// <summary>Not looked yet, or the last look failed.</summary>
+        Unknown,
+        /// <summary>No Discord app running.</summary>
+        NotRunning,
+        /// <summary>Discord is running but has no audio in the volume mixer yet (it adds it once it first plays something).</summary>
+        NoAudio,
+        /// <summary>Discord found, ready to lower.</summary>
+        Ready,
+        /// <summary>Discord is lowered right now.</summary>
+        Lowered,
     }
 
     /// <summary>
@@ -32,6 +53,9 @@ namespace AFVReplay.Audio
         /// <summary>While ducked, how often to catch Discord audio that started since (a new call, a reconnect).</summary>
         public static readonly TimeSpan Rescan = TimeSpan.FromSeconds(5);
 
+        /// <summary>While not ducked, how often to look for Discord for the status line.</summary>
+        public static readonly TimeSpan ProbeEvery = TimeSpan.FromSeconds(2);
+
         /// <summary>The longest shutdown waits for Discord's volume to be put back, so vatSys's exit is never held up.</summary>
         public static readonly TimeSpan ShutdownLimit = TimeSpan.FromSeconds(1);
 
@@ -43,8 +67,10 @@ namespace AFVReplay.Audio
         private readonly Func<DateTime> clock;
         private readonly object sync = new object();
         private Timer timer;
-        private DateTime lastBusyUtc, lastDuckUtc;
-        private float level = -1;
+        private DateTime lastBusyUtc, lastDuckUtc, lastProbeUtc = DateTime.MinValue;
+        private volatile DiscordState state = DiscordState.Off;
+        private int duckedPercent = -1; // compared as a whole number: on 32-bit vatSys a float like 0.1 can differ from itself
+        private int lastCount = -1;
 
         public DiscordDucker(IAppVolume app, Func<bool> enabled, Func<bool> busy, Func<int> percent, Func<TimeSpan?> resumeDelay, Func<DateTime> clock = null)
         {
@@ -58,6 +84,9 @@ namespace AFVReplay.Audio
 
         /// <summary>True while this has Discord lowered.</summary>
         public bool Ducked { get; private set; }
+
+        /// <summary>What it can see of Discord right now (updated every couple of seconds while switched on).</summary>
+        public DiscordState State => state;
 
         public void Start(TimeSpan interval) => timer = new Timer(_ => Tick(), null, TimeSpan.Zero, interval);
 
@@ -77,24 +106,41 @@ namespace AFVReplay.Audio
 
                 if (isBusy) lastBusyUtc = now;
 
+                if (!on && !Ducked)
+                {
+                    state = DiscordState.Off;
+                    lastProbeUtc = DateTime.MinValue; // look straight away when switched on
+                    return;
+                }
+
                 if (Ducked)
                 {
                     var delay = resumeDelay() ?? NeverFallback;
                     if (!on || (!isBusy && now - lastBusyUtc >= delay))
                     {
                         Ducked = false;
-                        level = -1;
+                        duckedPercent = -1;
+                        lastCount = -1;
                         Safe(app.Restore);
+                        Diag.Info("Duck Discord: restored");
+                        state = on ? DiscordState.Unknown : DiscordState.Off;
+                        lastProbeUtc = DateTime.MinValue;
                         return;
                     }
                     // The amount changed, or Discord may have started more audio since.
-                    float wanted = Level();
-                    if (wanted != level || now - lastDuckUtc >= Rescan) Duck(wanted, now);
+                    int wanted = Percent();
+                    if (wanted != duckedPercent || now - lastDuckUtc >= Rescan) Duck(wanted, now);
                 }
                 else if (isBusy)
                 {
                     Ducked = true;
-                    Duck(Level(), now);
+                    Duck(Percent(), now);
+                }
+                else if (now - lastProbeUtc >= ProbeEvery)
+                {
+                    lastProbeUtc = now;
+                    try { state = app.Probe(); }
+                    catch (Exception ex) { state = DiscordState.Unknown; Diag.Warn("Discord check failed: " + ex.GetType().Name + ": " + ex.Message); }
                 }
             }
             finally
@@ -103,19 +149,25 @@ namespace AFVReplay.Audio
             }
         }
 
-        private float Level() => 1f - Math.Max(0, Math.Min(100, percent())) / 100f;
+        private int Percent() => Math.Max(0, Math.Min(100, percent()));
 
-        private void Duck(float wanted, DateTime now)
+        private void Duck(int byPercent, DateTime now)
         {
-            level = wanted;
-            lastDuckUtc = now;
-            Safe(() => app.Duck(wanted));
+            duckedPercent = byPercent;
+            float wanted = 1f - byPercent / 100f;
+            lastDuckUtc = now; // a failed attempt is tried again at the next rescan, not every tick
+            int n = -1;
+            Safe(() => n = app.Duck(wanted));
+            if (n >= 0 && n != lastCount) Diag.Info($"Duck Discord: lowered to {wanted:P0} ({n} Discord audio session(s))");
+            if (n >= 0) lastCount = n;
+            // "Ducked now" only when Discord really was lowered.
+            state = n > 0 ? DiscordState.Lowered : n == 0 ? DiscordState.NoAudio : DiscordState.Unknown;
         }
 
         private static void Safe(Action a)
         {
             try { a(); }
-            catch (Exception ex) { Diag.Warn("Discord volume change failed: " + ex.GetType().Name); }
+            catch (Exception ex) { Diag.Warn("Discord volume change failed: " + ex.GetType().Name + ": " + ex.Message); }
         }
 
         /// <summary>Stops, and puts Discord's volume back. Windows remembers app volumes, so this matters.</summary>
@@ -138,14 +190,32 @@ namespace AFVReplay.Audio
     }
 
     /// <summary>
-    /// Discord's volume in the Windows volume mixer: every audio session of Discord, Discord PTB or Canary on
+    /// Discord's volume in the Windows volume mixer: every audio session of Discord (stable, PTB, Canary) or a third-party client (Vesktop, Legcord, WebCord) on
     /// every playback device. Uses Windows' Core Audio directly and releases every Windows audio object as soon
     /// as it's done with it (NAudio's wrappers left them for the garbage collector, which piled up hundreds of
     /// open audio objects at a time). Only Discord's own volume controls are held, and only while ducked.
     /// </summary>
     internal sealed class WindowsAppVolume : IAppVolume
     {
-        private static readonly string[] Names = { "Discord", "DiscordPTB", "DiscordCanary", "DiscordDevelopment" };
+        /// <summary>The Discord app (stable, PTB, Canary, Development) and third-party clients (Vesktop, Legcord / ArmCord, WebCord).</summary>
+        private static readonly string[] DiscordNames =
+            { "Discord", "DiscordPTB", "DiscordCanary", "DiscordDevelopment", "Vesktop", "Legcord", "ArmCord", "WebCord" };
+        private readonly string[] names;
+
+        /// <param name="processNames">For tests: the apps to lower instead of Discord.</param>
+        public WindowsAppVolume(params string[] processNames) => names = processNames.Length > 0 ? processNames : DiscordNames;
+
+        /// <summary>For tests: the volume of each matching session right now, read afresh.</summary>
+        internal List<float> ReadVolumes()
+        {
+            var v = new List<float>();
+            foreach (var (_, control) in DiscordSessions())
+            {
+                if (control.GetMasterVolume(out float level) == 0) v.Add(level);
+                Release(control);
+            }
+            return v;
+        }
 
         /// <summary>Discord sessions lowered, by session instance id: the volume control and the volume before.</summary>
         private readonly Dictionary<string, (CoreAudio.ISimpleAudioVolume control, float original)> held =
@@ -157,7 +227,7 @@ namespace AFVReplay.Audio
         /// <summary>For the leak check: Discord volume controls held right now.</summary>
         internal int Held => held.Count;
 
-        public void Duck(float level)
+        public int Duck(float level)
         {
             level = Math.Max(0f, Math.Min(1f, level));
             foreach (var (id, control) in DiscordSessions())
@@ -175,8 +245,25 @@ namespace AFVReplay.Audio
             foreach (var h in held.Values)
             {
                 var ctx = Guid.Empty;
-                try { h.control.SetMasterVolume(h.original * level, ref ctx); } catch { } // the session may have gone
+                int hr = h.control.SetMasterVolume(h.original * level, ref ctx);
+                if (hr != 0) Diag.Warn($"Duck Discord: volume change refused (0x{hr:X8})");
             }
+            return held.Count;
+        }
+
+        public DiscordState Probe()
+        {
+            var sessions = DiscordSessions();
+            foreach (var (_, control) in sessions) Release(control);
+            if (sessions.Count > 0) return DiscordState.Ready;
+            foreach (var n in names)
+            {
+                var running = Process.GetProcessesByName(n);
+                bool any = running.Length > 0;
+                foreach (var p in running) p.Dispose();
+                if (any) return DiscordState.NoAudio;
+            }
+            return DiscordState.NotRunning;
         }
 
         public void Restore()
@@ -199,28 +286,35 @@ namespace AFVReplay.Audio
             CoreAudio.IMMDeviceCollection devices = null;
             try
             {
-                enumerator = (CoreAudio.IMMDeviceEnumerator)new CoreAudio.MMDeviceEnumeratorComObject();
-                Check(enumerator.EnumAudioEndpoints(CoreAudio.Render, CoreAudio.DeviceStateActive, out devices));
+                enumerator = CoreAudio.CreateEnumerator();
+                Check(enumerator.EnumAudioEndpoints(CoreAudio.Render, CoreAudio.DeviceStateActive, out IntPtr devicesPtr));
+                devices = CoreAudio.Own<CoreAudio.IMMDeviceCollection>(devicesPtr);
                 Check(devices.GetCount(out uint count));
                 for (uint d = 0; d < count; d++)
                 {
                     CoreAudio.IMMDevice device = null;
-                    object managerObject = null;
+                    CoreAudio.IAudioSessionManager2 manager = null;
                     CoreAudio.IAudioSessionEnumerator sessions = null;
                     try
                     {
-                        if (devices.Item(d, out device) != 0 || device == null) continue;
+                        if (devices.Item(d, out IntPtr devicePtr) != 0) continue;
+                        device = CoreAudio.Own<CoreAudio.IMMDevice>(devicePtr);
+                        if (device == null) continue;
                         var iid = typeof(CoreAudio.IAudioSessionManager2).GUID;
-                        if (device.Activate(ref iid, CoreAudio.ClsCtxAll, IntPtr.Zero, out managerObject) != 0 || managerObject == null) continue;
-                        var manager = (CoreAudio.IAudioSessionManager2)managerObject;
-                        if (manager.GetSessionEnumerator(out sessions) != 0 || sessions == null) continue;
+                        if (device.Activate(ref iid, CoreAudio.ClsCtxAll, IntPtr.Zero, out IntPtr managerPtr) != 0) continue;
+                        manager = CoreAudio.Own<CoreAudio.IAudioSessionManager2>(managerPtr);
+                        if (manager == null || manager.GetSessionEnumerator(out IntPtr sessionsPtr) != 0) continue;
+                        sessions = CoreAudio.Own<CoreAudio.IAudioSessionEnumerator>(sessionsPtr);
+                        if (sessions == null) continue;
                         if (sessions.GetCount(out int n) != 0) continue;
                         for (int i = 0; i < n; i++)
                         {
                             CoreAudio.IAudioSessionControl2 session = null;
                             try
                             {
-                                if (sessions.GetSession(i, out session) != 0 || session == null) continue;
+                                if (sessions.GetSession(i, out IntPtr sessionPtr) != 0) continue;
+                                session = CoreAudio.Own<CoreAudio.IAudioSessionControl2>(sessionPtr);
+                                if (session == null) continue;
                                 if (session.GetProcessId(out uint pid) != 0 || pid == 0 || !IsDiscord(pid)) continue;
                                 if (session.GetSessionInstanceIdentifier(out string id) != 0 || id == null) continue;
                                 found.Add((id, (CoreAudio.ISimpleAudioVolume)session)); // the same object's volume interface
@@ -232,7 +326,7 @@ namespace AFVReplay.Audio
                     finally
                     {
                         Release(sessions);
-                        Release(managerObject);
+                        Release(manager);
                         Release(device);
                     }
                 }
@@ -252,7 +346,7 @@ namespace AFVReplay.Audio
             try
             {
                 using (var p = Process.GetProcessById((int)pid))
-                    foreach (var n in Names)
+                    foreach (var n in names)
                         if (string.Equals(p.ProcessName, n, StringComparison.OrdinalIgnoreCase)) { yes = true; break; }
             }
             catch { } // exited, or not ours to see
@@ -261,10 +355,11 @@ namespace AFVReplay.Audio
 
         private static void Check(int hr) { if (hr != 0) Marshal.ThrowExceptionForHR(hr); }
 
+        /// <summary>Every wrapper here is Say Again's own (see <see cref="CoreAudio.Own{T}"/>), so releasing it never touches vatSys's.</summary>
         private static void Release(object com)
         {
             if (com != null && Marshal.IsComObject(com))
-                try { Marshal.ReleaseComObject(com); } catch { } // one reference: the same session can come back as the RCW already held
+                try { Marshal.FinalReleaseComObject(com); } catch { }
         }
     }
 
@@ -275,13 +370,41 @@ namespace AFVReplay.Audio
         public const uint DeviceStateActive = 1;
         public const uint ClsCtxAll = 0x17;
 
-        [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-        public class MMDeviceEnumeratorComObject { }
+        private static Guid EnumeratorClsid = new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E");
+
+        [DllImport("ole32.dll")]
+        private static extern int CoCreateInstance(ref Guid clsid, IntPtr outer, uint clsCtx, ref Guid iid, out IntPtr instance);
+
+        /// <summary>
+        /// Windows hands every caller in a process the same device enumerator (and often the same devices), and
+        /// vatSys's NAudio already holds them. .NET normally reuses the wrapper it made for vatSys, typed as NAudio's
+        /// own class, so Say Again's cast failed on every check, and releasing that shared wrapper would break
+        /// vatSys's. So every Windows audio object here gets a wrapper of Say Again's own instead.
+        /// </summary>
+        public static IMMDeviceEnumerator CreateEnumerator()
+        {
+            var iid = typeof(IMMDeviceEnumerator).GUID;
+            int hr = CoCreateInstance(ref EnumeratorClsid, IntPtr.Zero, 1 /* in-process */, ref iid, out IntPtr p);
+            if (hr != 0) Marshal.ThrowExceptionForHR(hr);
+            return Own<IMMDeviceEnumerator>(p);
+        }
+
+        /// <summary>Wraps a Windows object Say Again was just given in a wrapper of its own (never one vatSys holds), and drops the raw reference.</summary>
+        public static T Own<T>(IntPtr p) where T : class
+        {
+            if (p == IntPtr.Zero) return null;
+            object o;
+            try { o = Marshal.GetUniqueObjectForIUnknown(p); }
+            finally { Marshal.Release(p); }
+            if (o is T t) return t;
+            Marshal.FinalReleaseComObject(o);
+            throw new InvalidCastException("Windows audio object has no " + typeof(T).Name);
+        }
 
         [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         public interface IMMDeviceEnumerator
         {
-            [PreserveSig] int EnumAudioEndpoints(int dataFlow, uint stateMask, out IMMDeviceCollection devices);
+            [PreserveSig] int EnumAudioEndpoints(int dataFlow, uint stateMask, out IntPtr devices);
             // (later methods not used)
         }
 
@@ -289,13 +412,13 @@ namespace AFVReplay.Audio
         public interface IMMDeviceCollection
         {
             [PreserveSig] int GetCount(out uint count);
-            [PreserveSig] int Item(uint index, out IMMDevice device);
+            [PreserveSig] int Item(uint index, out IntPtr device);
         }
 
         [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         public interface IMMDevice
         {
-            [PreserveSig] int Activate(ref Guid iid, uint clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object instance);
+            [PreserveSig] int Activate(ref Guid iid, uint clsCtx, IntPtr activationParams, out IntPtr instance);
         }
 
         [ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -305,14 +428,14 @@ namespace AFVReplay.Audio
             [PreserveSig] int GetAudioSessionControl(IntPtr sessionGuid, uint flags, out IntPtr control);
             [PreserveSig] int GetSimpleAudioVolume(IntPtr sessionGuid, uint flags, out IntPtr volume);
             // IAudioSessionManager2
-            [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator sessions);
+            [PreserveSig] int GetSessionEnumerator(out IntPtr sessions);
         }
 
         [ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         public interface IAudioSessionEnumerator
         {
             [PreserveSig] int GetCount(out int count);
-            [PreserveSig] int GetSession(int index, out IAudioSessionControl2 session);
+            [PreserveSig] int GetSession(int index, out IntPtr session);
         }
 
         [ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

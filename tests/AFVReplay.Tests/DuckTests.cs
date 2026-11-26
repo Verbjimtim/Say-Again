@@ -16,8 +16,19 @@ namespace AFVReplay.Tests
         {
             public readonly List<string> Calls = new List<string>();
             public float Volume = 1f; // as a fraction of what it was before ducking
-            public void Duck(float level) { Calls.Add("duck " + level.ToString("0.0")); Volume = level; }
+            public bool Fail;
+            public int Sessions = 1;
+            public int Duck(float level)
+            {
+                Calls.Add("duck " + level.ToString("0.0"));
+                if (Fail) throw new InvalidCastException("test");
+                if (Sessions > 0) Volume = level;
+                return Sessions;
+            }
             public void Restore() { Calls.Add("restore"); Volume = 1f; }
+            public DiscordState Found = DiscordState.Ready;
+            public int Probes;
+            public DiscordState Probe() { Probes++; return Found; }
         }
 
         /// <summary>
@@ -85,6 +96,79 @@ namespace AFVReplay.Tests
             int n = app.Calls.Count;
             d.Dispose();
             Assert(app.Calls.Count == n, "nothing more after shutdown");
+        }
+
+        /// <summary>The Media tab's Discord line: off, not running, no audio yet, ready, ducked now.</summary>
+        internal static void DiscordStatusShown()
+        {
+            var app = new FakeApp();
+            var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            bool on = false, busy = false;
+            var d = new DiscordDucker(app, () => on, () => busy, () => 50, () => TimeSpan.FromSeconds(2), () => now);
+            void Step(double seconds) { for (int i = 0; i < seconds * 10; i++) { now = now.AddMilliseconds(100); d.Tick(); } }
+
+            Step(5);
+            Assert(d.State == DiscordState.Off && app.Probes == 0, "off: shows off, never looks for Discord");
+            app.Found = DiscordState.NotRunning;
+            on = true; Step(0.1);
+            Assert(d.State == DiscordState.NotRunning && app.Probes == 1, "switched on: looks straight away");
+            Step(5);
+            Assert(app.Probes == 3, "then every 2 s: " + app.Probes);
+            app.Found = DiscordState.NoAudio; Step(2);
+            Assert(d.State == DiscordState.NoAudio, "running, no audio yet");
+            app.Found = DiscordState.Ready; Step(2);
+            Assert(d.State == DiscordState.Ready, "ready");
+            busy = true; Step(0.1);
+            Assert(d.State == DiscordState.Lowered, "ducked now");
+            int probes = app.Probes;
+            Step(3);
+            Assert(app.Probes == probes, "no extra looking while ducked");
+            busy = false; Step(2.5);
+            Assert(!d.Ducked && d.State == DiscordState.Ready, "back to ready after restoring: " + d.State);
+            on = false; Step(0.1);
+            Assert(d.State == DiscordState.Off, "switched off");
+            Assert(UI.SayAgainPage.DuckStatusText(null) == "unavailable" && UI.SayAgainPage.DuckStatusText(DiscordState.Lowered) == "ducked now", "status text");
+        }
+
+        /// <summary>
+        /// "Ducked now" only when Discord really was lowered: a failed attempt shows "checking..." and a call with
+        /// no Discord audio shows "no audio yet". A failing attempt is retried every 5 s, not every 100 ms.
+        /// </summary>
+        internal static void DuckStatusIsHonest()
+        {
+            var app = new FakeApp { Fail = true };
+            var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+            bool busy = false;
+            var d = new DiscordDucker(app, () => true, () => busy, () => 50, () => TimeSpan.FromSeconds(2), () => now);
+            void Step(double seconds) { for (int i = 0; i < seconds * 10; i++) { now = now.AddMilliseconds(100); d.Tick(); } }
+
+            busy = true; Step(0.1);
+            Assert(d.State == DiscordState.Unknown, "failed duck is not 'ducked now': " + d.State);
+            Step(3);
+            Assert(app.Calls.Count == 1, "no retry every tick: " + app.Calls.Count);
+            Step(2.5);
+            Assert(app.Calls.Count == 2, "retried after 5 s: " + app.Calls.Count);
+            app.Fail = false; Step(5);
+            Assert(d.State == DiscordState.Lowered && app.Volume == 0.5f, "works once Windows answers: " + d.State);
+            busy = false; Step(2.5);
+
+            app.Sessions = 0; app.Volume = 1f;
+            busy = true; Step(0.1);
+            Assert(d.State == DiscordState.NoAudio, "no Discord audio to lower: " + d.State);
+            app.Sessions = 1; Step(5.1);
+            Assert(d.State == DiscordState.Lowered && app.Volume == 0.5f, "Discord audio that starts mid-call is lowered at the next rescan: " + d.State);
+            busy = false; Step(2.5);
+            Assert(!d.Ducked && app.Volume == 1f, "restored");
+
+            // Amounts that aren't exact as decimals (90% -> 0.1) don't re-apply on every tick.
+            foreach (int pct in new[] { 10, 30, 70, 90 })
+            {
+                var odd = new FakeApp();
+                bool b = true;
+                var d2 = new DiscordDucker(odd, () => true, () => b, () => pct, () => TimeSpan.FromSeconds(2), () => now);
+                for (int i = 0; i < 30; i++) { now = now.AddMilliseconds(100); d2.Tick(); }
+                Assert(odd.Calls.Count == 1, $"{pct}%: applied once in 3 s, not every tick: {odd.Calls.Count}");
+            }
         }
 
         internal static void DuckSettings()

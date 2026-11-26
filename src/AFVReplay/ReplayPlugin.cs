@@ -105,6 +105,9 @@ namespace AFVReplay
             }
         }
 
+        /// <summary>Duck Discord's view of Discord, for the Media tab; null if Duck Discord couldn't start.</summary>
+        internal DiscordState? DuckState => ducker?.State;
+
         internal string StatusText =>
             disabledReason != null ? "Disabled: " + disabledReason
             : (hook != null && hook.IsHooked ? $"Listening: {hook.TapCount} receiver" + (hook.TapCount == 1 ? "" : "s") : "Waiting for AFV") + Environment.NewLine + TxRxText;
@@ -286,6 +289,7 @@ namespace AFVReplay
             {
                 ducker = new DiscordDucker(new WindowsAppVolume(), () => Settings.DuckDiscord, RadioBusy, () => Settings.DuckPercent, () => Settings.MediaResumeDelay);
                 ducker.Start(TimeSpan.FromMilliseconds(100));
+                Diag.Info("Duck Discord ready");
             }
             catch (Exception ex)
             {

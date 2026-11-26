@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.2.4
 
+- Fixed: **Duck Discord** never lowered Discord inside vatSys. Windows gives every part of a program the same audio device list, and vatSys's own audio had already claimed it, so Say Again's every look for Discord failed (it only ever worked in testing outside vatSys). Say Again now keeps its own handle on each Windows audio object, so it finds Discord and never touches vatSys's audio.
+- Fixed: the Media tab said *ducked now* whenever Say Again tried to duck Discord, even when that failed. It now says *ducked now* only once Discord really is lowered (*running, no audio yet* if Discord had no audio to lower). A failed attempt is retried every 5 s rather than many times a second, and a Duck By amount is no longer re-applied on every check.
+- Settings → Media now shows what **Duck Discord** can see: *not running*, *running, no audio yet* (Windows only lists Discord's audio once it has played a sound), *found, ready to duck* or *ducked now*, so it's clear why Discord isn't being lowered.
+- Duck Discord also works with the Vesktop, Legcord (ArmCord) and WebCord Discord clients.
 - New: **Blocked** alerts (Settings → Alerts). AFV silently drops any call on a frequency while you're transmitting on it, so you never knew you'd been blocked. Say Again now catches those calls. You still hear nothing while you transmit, but the call is kept so Replay plays it, shown as *(over you)* in the Say Again list.
   - **Blocked** (on by default): catches and keeps the calls. Turn it off to leave AFV's behaviour untouched; the settings below then do nothing.
   - **Blocked UI** (on by default): while the other station is calling over you, that frequency's VSCS button flashes red with **BLOCKED** under it (clicks still reach vatSys's button), and the Say Again button shows **Blocked** and who called until a few seconds after you release PTT (right click dismisses it).

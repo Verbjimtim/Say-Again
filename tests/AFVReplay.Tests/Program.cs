@@ -1,3 +1,4 @@
+using System.Linq;
 using System;
 using System.IO;
 using System.Reflection;
@@ -21,7 +22,16 @@ namespace AFVReplay.Tests
             System.Windows.Forms.Application.ThreadException += (s, e) => Console.WriteLine("UI EXCEPTION: " + e.Exception);
             bool preview = args.Length >= 3 && (args[0] == "--preview" || args[0] == "--preview-vscs");
             bool soak = args.Length >= 2 && args[0] == "--soak-duck";
-            if (!preview && !soak && args.Length > 0) VatSysBin = args[0];
+            if (args.Length >= 1 && args[0] == "--check-duck") return DuckSoak.Check();
+            if (args.Length >= 1 && args[0] == "--check-duck-discord") return DuckSoak.CheckDiscord();
+            if (args.Length >= 1 && args[0] == "--check-foreground") return DuckSoak.CheckForeground();
+            if (args.Length >= 1 && args[0] == "--check-ducker") return DuckSoak.CheckDucker();
+            if (args.Length >= 1 && args[0] == "--check-sta-held") return DuckSoak.CheckStaHeld();
+            if (args.Length >= 2 && args[0] == "--debug-capture") return DebugCapture.Run(int.Parse(args[1]));
+            if (args.Length >= 2 && args[0] == "--watch-discord") return DuckSoak.WatchDiscord(int.Parse(args[1]));
+            if (args.Length >= 1 && args[0] == "--check-media-grab") return DuckSoak.CheckMediaGrab();
+            if (args.Length >= 1 && args[0] == "--check-media-foreground") return DuckSoak.CheckMediaForeground();
+            if (!preview && !soak && args.Length > 0 && !args[0].StartsWith("--")) VatSysBin = args[0];
             AppDomain.CurrentDomain.AssemblyResolve += (s, e) =>
             {
                 var name = new AssemblyName(e.Name).Name;

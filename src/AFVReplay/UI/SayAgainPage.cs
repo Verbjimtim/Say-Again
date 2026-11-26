@@ -415,6 +415,7 @@ namespace AFVReplay.UI
                 list.Invalidate(); // the playing row is drawn bold
             }
             status.Text = StatusOverride ?? plugin.StatusText + Environment.NewLine + plugin.CoordStatusText;
+            if (duckStatus != null) duckStatus.Text = DuckStatusText(plugin.DuckState);
         }
 
         private Clip followed;
@@ -664,6 +665,10 @@ namespace AFVReplay.UI
                 v => v >= ReplaySettings.ResumeNever ? "Never" : v + " s", v => s.MediaResumeSeconds = v);
             AddToggle(media, "Duck Discord", s.DuckDiscord, v => s.DuckDiscord = v);
             AddSlider(media, "Duck By", 10, 100, s.DuckPercent, v => v + "%", v => s.DuckPercent = v, step: 10);
+            // What Duck Discord can see, so it's clear why Discord isn't being lowered.
+            duckStatus = new TextLabel(false) { AutoSize = true, Anchor = AnchorStyles.Left, Font = MMI.eurofont_winverysml, ForeColor = NonInteractive, BackColor = WinBg, Margin = new Padding(2, 2, 0, 2) };
+            AddRow(media, SettingLabel("Discord"), duckStatus);
+            media.SetColumnSpan(duckStatus, 2);
 
             var alerts = SettingsPage();
             handoffToggle = AddToggle(alerts, "Handoff Alert", s.HandoffAlert, v => s.HandoffAlert = v);
@@ -700,6 +705,7 @@ namespace AFVReplay.UI
         }
 
         private CheckBox handoffToggle;
+        private TextLabel duckStatus;
         private CheckBox blockedToggle, blockedUiToggle, blockedToneToggle, toneTimingToggle;
 
         /// <summary>For tests: Blocked, Blocked UI, Blocked Tone, Tone Timing.</summary>
@@ -712,6 +718,21 @@ namespace AFVReplay.UI
             if (blockedUiToggle != null) blockedUiToggle.Enabled = s.OverYouAlert;
             if (blockedToneToggle != null) blockedToneToggle.Enabled = s.OverYouAlert;
             if (toneTimingToggle != null) toneTimingToggle.Enabled = s.OverYouAlert && s.OverYouTone;
+        }
+
+        /// <summary>The Media tab's Discord line.</summary>
+        internal static string DuckStatusText(DiscordState? state)
+        {
+            switch (state)
+            {
+                case null: return "unavailable";
+                case DiscordState.Off: return "Duck Discord is off";
+                case DiscordState.NotRunning: return "not running";
+                case DiscordState.NoAudio: return "running, no audio yet";
+                case DiscordState.Ready: return "found, ready to duck";
+                case DiscordState.Lowered: return "ducked now";
+                default: return "checking...";
+            }
         }
 
         /// <summary>The Setup page's Handoff Alert button was used: show the same on the Alerts tab.</summary>

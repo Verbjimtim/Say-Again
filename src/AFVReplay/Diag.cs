@@ -14,9 +14,16 @@ namespace AFVReplay
 
         public static void Warn(string message) => Write("[AFVReplay] WARN " + message);
 
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern void OutputDebugString(string message);
+
+        /// <summary>
+        /// To the Windows debug output (seen only by a debug listener such as DebugView), in release builds too:
+        /// Debug.WriteLine is compiled out of them, which left no way to see why something failed on a user's PC.
+        /// </summary>
         private static void Write(string line)
         {
-            System.Diagnostics.Debug.WriteLine(line);
+            try { OutputDebugString(line); } catch { }
             if (Echo) Console.WriteLine("     " + line);
         }
 

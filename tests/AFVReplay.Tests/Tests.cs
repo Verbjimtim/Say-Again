@@ -86,6 +86,8 @@ namespace AFVReplay.Tests
             Run(nameof(EndToEnd_RealVatSysMicInputs), EndToEnd_RealVatSysMicInputs);
             Run(nameof(MediaPausesWhileRadioBusy), MediaPausesWhileRadioBusy);
             Run(nameof(DuckTests.DiscordDucksWhileRadioBusy), DuckTests.DiscordDucksWhileRadioBusy);
+            Run(nameof(DuckTests.DiscordStatusShown), DuckTests.DiscordStatusShown);
+            Run(nameof(DuckTests.DuckStatusIsHonest), DuckTests.DuckStatusIsHonest);
             Run(nameof(DuckTests.DuckSettings), DuckTests.DuckSettings);
             Run(nameof(HandoffTests.HandoffTrackerFollowsHandoffs), HandoffTests.HandoffTrackerFollowsHandoffs);
             Run(nameof(HandoffTests.HandoffMonitorPlaysTones), HandoffTests.HandoffMonitorPlaysTones);

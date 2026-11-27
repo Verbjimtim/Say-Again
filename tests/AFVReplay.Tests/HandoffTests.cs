@@ -137,6 +137,16 @@ namespace AFVReplay.Tests
             using (var wav = AlertPlayer.Wav(AlertTone.Refused, 48000, 2))
             using (var reader = new NAudio.Wave.WaveFileReader(wav))
                 Assert(reader.WaveFormat.BitsPerSample == 16 && Math.Abs(reader.TotalTime.TotalSeconds - AlertPlayer.Length.TotalSeconds) < 0.002, "fallback wav");
+
+            // The Duck Discord easter egg: the recorded quack, built into the DLL, at any output rate.
+            var quack = AlertPlayer.Samples(AlertTone.Quack, 44100, 2);
+            Assert(AlertPlayer.LengthOf(AlertTone.Quack).TotalSeconds > 0.1 && AlertPlayer.LengthOf(AlertTone.Quack).TotalSeconds < 1, "quack recording loaded: " + AlertPlayer.LengthOf(AlertTone.Quack));
+            var quack48 = AlertPlayer.Samples(AlertTone.Quack, 48000, 1);
+            Assert(Math.Abs(quack48.Length / 48000.0 - AlertPlayer.LengthOf(AlertTone.Quack).TotalSeconds) < 0.002, "quack resampled to 48 kHz");
+            Assert(Math.Abs(quack.Length / 2 / 44100.0 - AlertPlayer.LengthOf(AlertTone.Quack).TotalSeconds) < 0.002, "quack length");
+            Assert(quack.Max(Math.Abs) < 1f && quack.Max(Math.Abs) > 0.3f && quack.All(v => !float.IsNaN(v)), "quack level " + quack.Max(Math.Abs));
+            Assert(AlertPlayer.Samples(AlertTone.Quack, 44100, 2, 0).All(v => v == 0), "zero alert volume silences the quack");
+            Assert(UI.SayAgainPage.QuackChancePerThousand == 1, "quack is 0.1%");
         }
 
         internal static void HandoffSettings()

@@ -51,4 +51,9 @@
     <InternalsVisibleTo Include="AFVReplay.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Easter egg sound. "Duck Quack - Sound Effect (HD)" by Tabby+Gus. on Freesound, CC0; trimmed to mono 16-bit. -->
+    <EmbeddedResource Include="Handoff\quack.wav" LogicalName="AFVReplay.quack.wav" />
+  </ItemGroup>
+
 </Project>

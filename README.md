@@ -126,3 +126,5 @@ Calls are kept in memory only and never saved. They are deleted after the retent
 ## Credits
 
 Handoff Alert is Matt's ([mattk04/vatsys-handoff-alert](https://github.com/mattk04/vatsys-handoff-alert)), merged into Say Again with his agreement.
+
+One sound effect is "Duck Quack - Sound Effect (HD)" by [Tabby+Gus.](https://freesound.org/people/Tabby+Gus./sounds/515408/) on Freesound (CC0).

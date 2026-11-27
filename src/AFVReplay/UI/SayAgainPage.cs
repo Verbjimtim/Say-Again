@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Windows.Forms;
 using AFVReplay.Audio;
+using AFVReplay.Handoff;
 using AFVReplay.VatSys;
 using vatsys;
 using Slider = VATSYSControls.Slider;
@@ -663,7 +664,11 @@ namespace AFVReplay.UI
             AddToggle(media, "Pause Media", s.PauseMedia, v => s.PauseMedia = v);
             AddSlider(media, "Resume Media", 1, ReplaySettings.ResumeNever, s.MediaResumeSeconds,
                 v => v >= ReplaySettings.ResumeNever ? "Never" : v + " s", v => s.MediaResumeSeconds = v);
-            AddToggle(media, "Duck Discord", s.DuckDiscord, v => s.DuckDiscord = v);
+            AddToggle(media, "Duck Discord", s.DuckDiscord, v =>
+            {
+                s.DuckDiscord = v;
+                if (v && QuackRoll()) plugin.Alerts?.Play(AlertTone.Quack); // easter egg: 1 in 1000
+            });
             AddSlider(media, "Duck By", 10, 100, s.DuckPercent, v => v + "%", v => s.DuckPercent = v, step: 10);
             // What Duck Discord can see, so it's clear why Discord isn't being lowered.
             duckStatus = new TextLabel(false) { AutoSize = true, Anchor = AnchorStyles.Left, Font = MMI.eurofont_winverysml, ForeColor = NonInteractive, BackColor = WinBg, Margin = new Padding(2, 2, 0, 2) };
@@ -706,6 +711,13 @@ namespace AFVReplay.UI
 
         private CheckBox handoffToggle;
         private TextLabel duckStatus;
+
+        /// <summary>Chance, out of 1000, that switching Duck Discord on quacks.</summary>
+        internal const int QuackChancePerThousand = 1;
+        private static readonly Random QuackDice = new Random();
+
+        /// <summary>Whether this switch-on gets a quack. Replaceable for tests.</summary>
+        internal static Func<bool> QuackRoll = () => QuackDice.Next(1000) < QuackChancePerThousand;
         private CheckBox blockedToggle, blockedUiToggle, blockedToneToggle, toneTimingToggle;
 
         /// <summary>For tests: Blocked, Blocked UI, Blocked Tone, Tone Timing.</summary>

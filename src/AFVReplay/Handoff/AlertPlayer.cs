@@ -7,7 +7,7 @@ using AFVReplay.VatSys;
 
 namespace AFVReplay.Handoff
 {
-    internal enum AlertTone { Incoming, Accepted, Refused, OverYou }
+    internal enum AlertTone { Incoming, Accepted, Refused, OverYou, Quack }
 
     /// <summary>
     /// Plays the handoff tones (Matt's: rising for a handoff to you, falling for your handoff accepted, flat
@@ -37,19 +37,22 @@ namespace AFVReplay.Handoff
             lock (sync)
             {
                 var now = DateTime.UtcNow;
-                playingUntilUtc = (playingUntilUtc > now ? playingUntilUtc : now) + Length;
+                playingUntilUtc = (playingUntilUtc > now ? playingUntilUtc : now) + LengthOf(tone);
                 queue = queue.ContinueWith(_ => PlayNow(tone), TaskScheduler.Default);
             }
         }
 
-        /// <summary>How long each tone lasts.</summary>
+        /// <summary>How long each handoff tone lasts.</summary>
         public static TimeSpan Length => TimeSpan.FromMilliseconds(2 * ToneMs + GapMs);
+
+        /// <summary>How long <paramref name="tone"/> lasts.</summary>
+        public static TimeSpan LengthOf(AlertTone tone) => tone == AlertTone.Quack ? QuackLength : Length;
 
         private void PlayNow(AlertTone tone)
         {
             try
             {
-                if (PlayOverride != null) { PlayOverride(tone, Length); return; }
+                if (PlayOverride != null) { PlayOverride(tone, LengthOf(tone)); return; }
                 float volume = Volume;
                 string why = TryVatSys(tone, volume);
                 if (why == null) return;
@@ -102,6 +105,7 @@ namespace AFVReplay.Handoff
         /// <summary>Two 110 ms tones, 45 ms apart, with soft second and third harmonics: interleaved float samples.</summary>
         internal static float[] Samples(AlertTone tone, int sampleRate, int channels, float volume = 1f)
         {
+            if (tone == AlertTone.Quack) return QuackSamples(sampleRate, channels, volume);
             var freqs = Frequencies(tone);
             int toneSamples = sampleRate * ToneMs / 1000;
             int gapSamples = sampleRate * GapMs / 1000;
@@ -119,6 +123,93 @@ namespace AFVReplay.Handoff
                     for (int c = 0; c < channels; c++) data[frame * channels + c] = v;
                 }
                 if (t < freqs.Length - 1) frame += gapSamples; // silence
+            }
+            return data;
+        }
+
+        // ------------------------------------------------------------------ the quack (an easter egg: see Duck Discord)
+
+        /// <summary>
+        /// The recorded quack ("Duck Quack - Sound Effect (HD)" by Tabby+Gus. on Freesound, CC0), built into the
+        /// DLL as a mono 16-bit WAV and read once into memory. Empty if it can't be read.
+        /// </summary>
+        private static readonly Lazy<(float[] mono, int rate)> Quack = new Lazy<(float[], int)>(LoadQuack);
+
+        private static TimeSpan QuackLength =>
+            Quack.Value.rate > 0 ? TimeSpan.FromSeconds(Quack.Value.mono.Length / (double)Quack.Value.rate) : TimeSpan.Zero;
+
+        private static (float[], int) LoadQuack()
+        {
+            try
+            {
+                using (var s = typeof(AlertPlayer).Assembly.GetManifestResourceStream("AFVReplay.quack.wav"))
+                    return s == null ? (new float[0], 0) : ReadMonoWav(s);
+            }
+            catch (Exception ex)
+            {
+                Diag.Warn("quack unreadable: " + ex.GetType().Name);
+                return (new float[0], 0);
+            }
+        }
+
+        /// <summary>Reads a 16-bit PCM WAV, mixing it to mono floats.</summary>
+        internal static (float[] mono, int rate) ReadMonoWav(Stream stream)
+        {
+            using (var r = new BinaryReader(stream, Encoding.ASCII, true))
+            {
+                if (new string(r.ReadChars(4)) != "RIFF") throw new InvalidDataException("not RIFF");
+                r.ReadInt32();
+                if (new string(r.ReadChars(4)) != "WAVE") throw new InvalidDataException("not WAVE");
+                int channels = 0, rate = 0, bits = 0;
+                while (stream.Position + 8 <= stream.Length)
+                {
+                    string id = new string(r.ReadChars(4));
+                    int size = r.ReadInt32();
+                    long next = stream.Position + size + (size & 1);
+                    if (id == "fmt ")
+                    {
+                        if (r.ReadInt16() != 1) throw new InvalidDataException("not PCM");
+                        channels = r.ReadInt16();
+                        rate = r.ReadInt32();
+                        r.ReadInt32();
+                        r.ReadInt16();
+                        bits = r.ReadInt16();
+                    }
+                    else if (id == "data")
+                    {
+                        if (bits != 16 || channels < 1) throw new InvalidDataException("not 16-bit");
+                        int frames = size / 2 / channels;
+                        var mono = new float[frames];
+                        for (int i = 0; i < frames; i++)
+                        {
+                            int sum = 0;
+                            for (int c = 0; c < channels; c++) sum += r.ReadInt16();
+                            mono[i] = sum / (float)channels / 32768f;
+                        }
+                        return (mono, rate);
+                    }
+                    stream.Position = next;
+                }
+                throw new InvalidDataException("no data");
+            }
+        }
+
+        /// <summary>The quack at <paramref name="sampleRate"/> (linear resampling), interleaved float samples.</summary>
+        internal static float[] QuackSamples(int sampleRate, int channels, float volume = 1f)
+        {
+            var (mono, rate) = Quack.Value;
+            if (rate <= 0 || mono.Length == 0) return new float[0];
+            int frames = (int)((long)mono.Length * sampleRate / rate);
+            var data = new float[frames * channels];
+            double step = (double)rate / sampleRate;
+            for (int i = 0; i < frames; i++)
+            {
+                double pos = i * step;
+                int j = (int)pos;
+                double f = pos - j;
+                double a = mono[Math.Min(j, mono.Length - 1)], b = mono[Math.Min(j + 1, mono.Length - 1)];
+                float v = (float)((a + (b - a) * f) * volume);
+                for (int c = 0; c < channels; c++) data[i * channels + c] = v;
             }
             return data;
         }
